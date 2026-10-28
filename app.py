@@ -233,6 +233,8 @@ body{font-family:"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t
 .loading{padding:12px;color:#999;text-align:center;font-size:12px}
 #ch{flex:1;display:flex;flex-direction:column;min-width:0}
 #chh{height:50px;background:var(--side);border-bottom:1px solid var(--bd);display:flex;align-items:center;padding:0 16px;font-size:15px;font-weight:bold;gap:10px}
+#chh #chname{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
+#chh #chname:hover{white-space:normal;overflow:visible}
 #chh .ct{font-weight:normal;font-size:12px;color:var(--mut)}
 #messages{flex:1;overflow-y:auto;overflow-x:hidden;min-height:0;padding:16px 10% 30px;scrollbar-width:thin}
 #messages::-webkit-scrollbar{width:8px}
