@@ -1,0 +1,14 @@
+# 数据产物不入库（大、含隐私、可再生）
+*.db
+*.db-wal
+*.db-shm
+media/
+server.log
+__pycache__/
+*.py[cod]
+
+# 系统
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
