@@ -353,11 +353,47 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/media/"):
                 rel = path[len("/media/"):]
                 full = os.path.join(MEDIA_DIR, rel.replace("/", os.sep))
-                if os.path.isfile(full):
-                    ext = os.path.splitext(full)[1].lower()
+                if not os.path.isfile(full):
+                    return self.send("not found", "text/plain", 404)
+                size = os.path.getsize(full)
+                ctype = MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
+                rng = self.headers.get("Range")
+                if rng and rng.startswith("bytes="):
+                    # Range: bytes=start-end / bytes=start- / bytes=-suffix
+                    spec = rng[6:].split("-")
+                    start = int(spec[0]) if spec[0] else 0
+                    end = int(spec[1]) if len(spec) > 1 and spec[1] else size - 1
+                    start = max(0, min(start, size - 1))
+                    end = max(start, min(end, size - 1))
+                    n = end - start + 1
+                    self.send_response(206)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Content-Range", f"bytes {start}-{end}/{size}")
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Content-Length", str(n))
+                    self.end_headers()
                     with open(full, "rb") as f:
-                        return self.send(f.read(), MIME.get(ext, "application/octet-stream"))
-                return self.send("not found", "text/plain", 404)
+                        f.seek(start)
+                        left = n
+                        while left > 0:
+                            chunk = f.read(min(65536, left))
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                            left -= len(chunk)
+                else:
+                    self.send_response(200)
+                    self.send_header("Content-Type", ctype)
+                    self.send_header("Accept-Ranges", "bytes")
+                    self.send_header("Content-Length", str(size))
+                    self.end_headers()
+                    with open(full, "rb") as f:
+                        while True:
+                            chunk = f.read(65536)
+                            if not chunk:
+                                break
+                            self.wfile.write(chunk)
+                return
             return self.send("404", "text/plain", 404)
         except Exception as e:
             return self.send(f"error: {esc(e)}", "text/plain", 500)
