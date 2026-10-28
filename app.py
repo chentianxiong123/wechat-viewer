@@ -122,7 +122,7 @@ def render_msg(m, first_of_group):
     meta = f'<div class="mt">{fmt_short(ts)}</div>'
     name = ""
     if not mine and sname and sname != "我" and "@chatroom" in sid:
-        name = f'<div class="mn">{esc(sname)}</div>'
+        name = f'<div class="mn" tabindex="0" title="{esc(sname)}">{esc(sname)}</div>'
     return (f'<div class="{cls}"><div class="mav">{("我" if mine else (sname or "?")[0])}</div>'
             f'<div class="mb">{name}{body}{meta}</div></div>')
 
@@ -196,7 +196,8 @@ body{font-family:"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t
 .mav{width:36px;height:36px;border-radius:4px;background:#ddd;flex-shrink:0;font-size:12px;display:flex;align-items:center;justify-content:center;color:#888}
 .mb{max-width:65%;display:flex;flex-direction:column}
 .msg.mine .mb{align-items:flex-end}
-.mn{font-size:11px;color:var(--mut);margin-bottom:2px}
+.mn{font-size:11px;color:var(--mut);margin-bottom:2px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;outline:none}
+.mn:focus{white-space:normal;overflow:visible;text-overflow:clip}
 .bub{padding:8px 12px;border-radius:6px;font-size:14px;line-height:1.55;word-break:break-word;box-shadow:0 1px 1px rgba(0,0,0,.05);background:#fff}
 .msg.mine .bub{background:var(--mine)}
 .msg.sys .bub{background:none;box-shadow:none;color:var(--mut);font-size:12px}

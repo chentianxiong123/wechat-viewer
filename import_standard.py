@@ -113,7 +113,14 @@ def main():
     for r in cur.execute("SELECT msgId,talker,isSend,createTime,type,content,imgPath FROM message ORDER BY createTime ASC"):
         mid,talker,isSend,ts,typ,content,imgPath = r
         content = content or ""; imgPath = imgPath or ""
+        # 群消息收到的 content 带 "发送者id:" 前缀(text 是 "id:\n正文", emoji 是 "id:0:0:md5:...")
+        who = talker
+        mm = re.match(r'^([^:\n]{5,40}):', content)
+        if not isSend and "@chatroom" in talker and mm:
+            who = mm.group(1); content = content[mm.end():].lstrip("\n")
         ty = type_map(typ); text=""; mp=""; mt=""; dur=None
+        if ty == "unknown" and content.lstrip().startswith(("<sysmsg", "<patMsg")):
+            ty = "system"
         if ty=="text": text=content
         if ty=="image":
             m=re.search(r'th_([0-9a-f]{32})',imgPath)
@@ -148,8 +155,8 @@ def main():
             sess_meta[talker] = {"name":tname(talker),
                 "type":"group" if talker.endswith("@chatroom") else ("official" if talker.startswith("gh_") else "private")}
         oc.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
-            (str(mid),talker,"send" if isSend else "recv",talker,
-             "我" if isSend else tname(talker),int(ts),ty,text,mp,mt,dur,""))
+            (str(mid),talker,"send" if isSend else "recv",who,
+             "我" if isSend else tname(who),int(ts),ty,text,mp,mt,dur,""))
         nmsg+=1
 
     for sid,meta in sess_meta.items():
