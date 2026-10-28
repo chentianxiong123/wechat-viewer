@@ -99,19 +99,19 @@ def render_msg(m, first_of_group):
         part.append(f'<div class="msg sys"><div class="bub sys">{br(text)}</div></div>')
         return "".join(part)
     if typ == "image":
-        body = (f'<img class="media" loading="lazy" src="/media/{mp}" '
-                f'data-src="/media/{mp}" onclick="openLb(this)" style="cursor:zoom-in">' if mp else
+        body = (f'<img class="media" loading="lazy" src="{mp}" '
+                f'data-src="{mp}" onclick="openLb(this)" style="cursor:zoom-in">' if mp else
                 '<div class="bub miss">[图片未解出]</div>')
     elif typ == "voice":
         d = f' {int(dur)}″' if dur else ""
-        body = (f'<div class="bub v"><audio controls src="/media/{mp}"></audio></div>'
+        body = (f'<div class="bub v"><audio controls src="{mp}"></audio></div>'
                 if mp else f'<div class="bub">🎤 [语音未解出{d}]</div>')
     elif typ == "video":
-        body = (f'<video class="media" controls src="/media/{mp}" preload="metadata" '
+        body = (f'<video class="media" controls src="{mp}" preload="metadata" '
                 f'ondblclick="try{{this.requestFullscreen()}}catch(e){{}}" style="cursor:pointer"></video>' if mp
                 else '<div class="bub miss">[视频未解出]</div>')
     elif typ == "emoji":
-        body = (f'<img class="media em" src="/media/{mp}" data-src="/media/{mp}" '
+        body = (f'<img class="media em" src="{mp}" data-src="{mp}" '
                 f'onclick="openLb(this)" style="cursor:zoom-in">' if mp
                 else '<div class="bub">😊 [表情]</div>')
     elif typ == "link":
