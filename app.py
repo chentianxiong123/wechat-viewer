@@ -8,8 +8,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(BASE, "standard.db")
-MEDIA_DIR = os.path.join(BASE, "media")
+DATA = r"C:/Users/a1/Documents/HiSuite"
+DB = os.path.join(DATA, "standard.db")
+MEDIA_DIR = os.path.join(DATA, "wechat_media")
 PORT = 8000
 def q(sql, args=()):
     db = sqlite3.connect(DB)

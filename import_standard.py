@@ -5,9 +5,10 @@
 import sqlite3, re, os, glob, sys, time
 
 BASE = r"C:/Users/a1/wechat-viewer"
-SRC = r"C:/Users/a1/Documents/HiSuite/decrypted.db"
-MEDIA = os.path.join(BASE, "media")
-DST = os.path.join(BASE, "standard.db")
+DATA = r"C:/Users/a1/Documents/HiSuite"
+SRC = os.path.join(DATA, "decrypted.db")
+MEDIA = os.path.join(DATA, "wechat_media")
+DST = os.path.join(DATA, "standard.db")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS contacts(
