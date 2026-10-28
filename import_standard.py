@@ -2,7 +2,7 @@
 """导入 decrypted.db(微信7.0.17) -> standard.db(标准结构)
 标准 schema: contacts/sessions/messages —— 以后微信/QQ各版本都往这套表导入。
 """
-import sqlite3, re, os, glob, sys, time
+import sqlite3, re, os, glob, sys, time, json
 
 BASE = r"C:/Users/a1/wechat-viewer"
 DATA = r"C:/Users/a1/Documents/HiSuite"
@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS sessions(
 CREATE TABLE IF NOT EXISTS messages(
   id TEXT, session_id TEXT, direction TEXT, sender TEXT, sender_name TEXT,
   timestamp INTEGER, type TEXT, text TEXT,
-  media_path TEXT, media_thumb TEXT, media_duration REAL, reply_to TEXT);
+  media_path TEXT, media_thumb TEXT, media_duration REAL, reply_to TEXT, card TEXT);
 CREATE INDEX IF NOT EXISTS idx_msg_sess ON messages(session_id, timestamp);
 """
 
@@ -78,6 +78,54 @@ def find_emoji(idx, md5):
         if k in idx:
             return idx[k]
     return ""
+
+def semi(content, path):
+    """~SEMI_XML~ 格式: 路径后 \x00 + 单字节长度 + 值"""
+    i = content.find(path)
+    if i < 0:
+        return ""
+    rest = content[i + len(path):]
+    if rest[:1] != "\x00" or len(rest) < 2:
+        return ""
+    return rest[2:2 + ord(rest[1])]
+
+def parse_card(content):
+    """appmsg(SEMI_XML/标准XML) → {title,des,url,cover,source}; 非卡片返回 None"""
+    if not content:
+        return None
+    if "~SEMI_XML~" in content and ".msg.appmsg" in content:
+        c = {"title": semi(content, ".msg.appmsg.title") or semi(content, ".msg.appmsg.mmreader.category.item.title"),
+             "des": semi(content, ".msg.appmsg.des") or semi(content, ".msg.appmsg.mmreader.category.item.digest"),
+             "url": semi(content, ".msg.appmsg.mmreader.category.item1.url") or semi(content, ".msg.appmsg.url"),
+             "cover": semi(content, ".msg.appmsg.mmreader.category.item.cover") or semi(content, ".msg.appmsg.mmreader.category.item1.cover"),
+             "source": semi(content, ".msg.appmsg.mmreader.publisher.nickname") or semi(content, ".msg.appmsg.mmreader.category.item.sources.source.name")}
+        return c if (c["title"] or c["url"]) else None
+    if "<appmsg" in content:
+        import re as _re
+        def x(k):
+            m = _re.search(r"<" + k + r">(.*?)</" + k + r">", content, _re.S)
+            return m.group(1).strip() if m else ""
+        return {"title": x("title"), "des": x("des"), "url": x("url"),
+                "cover": x("thumburl") or x("cdnthumburl"), "source": x("username")}
+    return None
+
+def fetch_cover(cover_url):
+    """下载封面到 HiSuite/media/covers/, 返回 /media2/ URL; 失败返回空"""
+    if not cover_url:
+        return ""
+    try:
+        import hashlib, urllib.request
+        md5 = hashlib.md5(cover_url.encode()).hexdigest()
+        dst = os.path.join(MEDIA2, "covers", md5 + ".jpg")
+        if not os.path.exists(dst):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            req = urllib.request.Request(cover_url, headers={"User-Agent": "Mozilla/5.0"})
+            data = urllib.request.urlopen(req, timeout=20).read()
+            with open(dst, "wb") as f:
+                f.write(data)
+        return "/media2/covers/" + md5 + ".jpg"
+    except Exception:
+        return ""
 
 def main():
     os.makedirs(os.path.dirname(DST), exist_ok=True)
@@ -150,13 +198,22 @@ def main():
         elif ty=="system": text=content.strip()[:500]
         else: text=(content.strip()[:100]) or f"[未知 {typ}]"
 
+        # appmsg(公众号文章/链接分享) → 卡片
+        card_json = ""
+        card = parse_card(content)
+        if card:
+            ty = "link"
+            text = card["title"] or "[链接]"
+            card["cover"] = fetch_cover(card["cover"])
+            card_json = json.dumps(card, ensure_ascii=False)
+
         sess = sess_meta.get(talker)
         if sess is None:
             sess_meta[talker] = {"name":tname(talker),
                 "type":"group" if talker.endswith("@chatroom") else ("official" if talker.startswith("gh_") else "private")}
-        oc.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+        oc.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (str(mid),talker,"send" if isSend else "recv",who,
-             "我" if isSend else tname(who),int(ts),ty,text,mp,mt,dur,""))
+             "我" if isSend else tname(who),int(ts),ty,text,mp,mt,dur,"",card_json))
         nmsg+=1
 
     for sid,meta in sess_meta.items():

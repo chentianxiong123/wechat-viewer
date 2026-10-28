@@ -90,7 +90,7 @@ def render_sessions(search=""):
 
 # ---------- 片段: 消息 ----------
 def render_msg(m, first_of_group):
-    mid, sid, direction, sender, sname, ts, typ, text, mp, mt, dur = m
+    mid, sid, direction, sender, sname, ts, typ, text, mp, mt, dur, reply_to, card_json = m
     mine = direction == "send"
     part = []
     if first_of_group:
@@ -116,6 +116,19 @@ def render_msg(m, first_of_group):
                 else '<div class="bub">😊 [表情]</div>')
     elif typ == "link":
         body = f'<div class="bub link">{br(text)}</div>'
+        if card_json:
+            try:
+                cd = json.loads(card_json)
+            except Exception:
+                cd = None
+            if cd and cd.get("url"):
+                cv = f'<img class="cc" src="{esc(cd["cover"])}" loading="lazy">' if cd.get("cover") else ""
+                des = cd.get("des") or ""
+                src = cd.get("source") or ""
+                body = (f'<a class="card" href="{esc(cd["url"])}" target="_blank" rel="noopener">{cv}'
+                        f'<div class="cb"><div class="ct">{esc(cd.get("title") or text)}</div>'
+                        + (f'<div class="cd">{esc(des)}</div>' if des else "")
+                        + f'<div class="cs">{esc(src)}</div></div></a>')
     else:
         body = f'<div class="bub">{br(text)}</div>'
     cls = "msg mine" if mine else "msg"
@@ -132,7 +145,7 @@ def render_messages(sid, before=None, limit=50):
         return '<div class="none">会话不存在</div>'
     # (timestamp,id) 复合游标; limit+1 探测是否还有更早
     sel = ("SELECT id,session_id,direction,sender,sender_name,timestamp,type,text,"
-           "media_path,media_thumb,media_duration FROM messages WHERE session_id=? ")
+           "media_path,media_thumb,media_duration,reply_to,card FROM messages WHERE session_id=? ")
     if before:
         ts, bid = map(int, before.split("_"))
         rows = q(sel + "AND (timestamp<? OR (timestamp=? AND id<?)) "
@@ -199,6 +212,12 @@ body{font-family:"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t
 .mn{font-size:11px;color:var(--mut);margin-bottom:2px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;outline:none}
 .mn:focus{white-space:normal;overflow:visible;text-overflow:clip}
 .bub{padding:8px 12px;border-radius:6px;font-size:14px;line-height:1.55;word-break:break-word;box-shadow:0 1px 1px rgba(0,0,0,.05);background:#fff}
+.card{display:flex;gap:9px;background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px;max-width:300px;text-decoration:none;color:var(--txt);box-shadow:0 1px 1px rgba(0,0,0,.05)}
+.card .cc{width:88px;height:88px;object-fit:cover;border-radius:4px;flex-shrink:0;background:#eee}
+.card .cb{min-width:0;display:flex;flex-direction:column;gap:3px}
+.card .ct{font-size:14px;line-height:1.4;font-weight:500;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .cd{font-size:12px;color:var(--mut);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.card .cs{font-size:11px;color:var(--mut);margin-top:auto}
 .msg.mine .bub{background:var(--mine)}
 .msg.sys .bub{background:none;box-shadow:none;color:var(--mut);font-size:12px}
 .mt{font-size:11px;color:var(--mut);margin-top:3px}
