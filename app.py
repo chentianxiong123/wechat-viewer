@@ -107,7 +107,7 @@ def render_msg(m, first_of_group):
                 if mp else f'<div class="bub">🎤 [语音未解出{d}]</div>')
     elif typ == "video":
         body = (f'<video class="media" controls src="/media/{mp}" preload="metadata" '
-                f'onclick="try{{this.requestFullscreen()}}catch(e){{}}" style="cursor:pointer"></video>' if mp
+                f'ondblclick="try{{this.requestFullscreen()}}catch(e){{}}" style="cursor:pointer"></video>' if mp
                 else '<div class="bub miss">[视频未解出]</div>')
     elif typ == "emoji":
         body = (f'<img class="media em" src="/media/{mp}" data-src="/media/{mp}" '
