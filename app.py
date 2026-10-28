@@ -88,6 +88,15 @@ def render_sessions(search=""):
         return '<div class="none">无匹配会话</div>'
     return "".join(out)
 
+PALETTE = ["#f56c6c", "#e6a23c", "#67c23a", "#409eff", "#b37feb", "#ff7c9f", "#2ec7c9", "#5b8ff9"]
+
+def avatar_color(name):
+    """昵称 hash → 微信风格彩色头像背景"""
+    h = 0
+    for ch in name:
+        h = (h * 31 + ord(ch)) & 0xffffffff
+    return PALETTE[h % len(PALETTE)]
+
 # ---------- 片段: 消息 ----------
 def render_msg(m, first_of_group):
     mid, sid, direction, sender, sname, ts, typ, text, mp, mt, dur, reply_to, card_json = m
@@ -136,7 +145,9 @@ def render_msg(m, first_of_group):
     name = ""
     if not mine and sname and sname != "我" and "@chatroom" in sid:
         name = f'<div class="mn" tabindex="0" title="{esc(sname)}">{esc(sname)}</div>'
-    return (f'<div class="{cls}"><div class="mav">{("我" if mine else (sname or "?")[0])}</div>'
+    av = "我" if mine else (sname or "?")[0]
+    ac = "#07c160" if mine else avatar_color(sname or "?")
+    return (f'<div class="{cls}"><div class="mav" style="background:{ac}">{av}</div>'
             f'<div class="mb">{name}{body}{meta}</div></div>')
 
 def render_messages(sid, before=None, limit=50):
@@ -206,7 +217,7 @@ body{font-family:"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t
 .tg span{background:#e8e8e8;padding:3px 10px;border-radius:4px}
 .msg{display:flex;margin:8px 0;gap:8px;align-items:flex-start}
 .msg.mine{flex-direction:row-reverse}
-.mav{width:36px;height:36px;border-radius:4px;background:#ddd;flex-shrink:0;font-size:12px;display:flex;align-items:center;justify-content:center;color:#888}
+.mav{width:36px;height:36px;border-radius:4px;flex-shrink:0;font-size:14px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:500;user-select:none}
 .mb{max-width:65%;display:flex;flex-direction:column}
 .msg.mine .mb{align-items:flex-end}
 .mn{font-size:11px;color:var(--mut);margin-bottom:2px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;outline:none}
