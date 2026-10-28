@@ -198,19 +198,36 @@ def main():
         elif ty=="system": text=content.strip()[:500]
         else: text=(content.strip()[:100]) or f"[未知 {typ}]"
 
-        # appmsg(公众号文章/链接分享) → 卡片
+        # 红包消息(卡片 appmsg 或 领取提示) → 红包卡片
         card_json = ""
-        card = parse_card(content)
-        if card:
-            ty = "link"
-            text = card["title"] or "[链接]"
-            card["cover"] = fetch_cover(card["cover"])
-            card_json = json.dumps(card, ensure_ascii=False)
-        elif ty == "location":
-            m = re.search(r'<location x="([\d.]+)" y="([\d.]+)"[^>]*label="([^"]*)"', content)
-            if m:
-                card_json = json.dumps({"x": m.group(1), "y": m.group(2), "label": m.group(3)}, ensure_ascii=False)
-                text = m.group(3) or "[位置]"
+        if typ == 436207665:  # 红包 appmsg(发出/领取红包卡片)
+            ht = re.search(r'<title><!\[CDATA\[(.*?)\]\]></title>', content, re.S)
+            hb = re.search(r'<wcpayinfo>.*?<receivertitle><!\[CDATA\[(.*?)\]\]></receivertitle>', content, re.S)
+            hu = re.search(r'<url><!\[CDATA\[(.*?)\]\]></url>', content, re.S)
+            card_json = json.dumps({"hongbao": True, "title": ht.group(1) if ht else "微信红包",
+                                    "des": hb.group(1) if hb else "", "url": hu.group(1) if hu else ""},
+                                   ensure_ascii=False)
+            text = "[微信红包]"; ty = "hongbao"
+        elif typ == 10000 and "Hongbao" in content:  # "XXX领取了你的红包" 系统提示
+            hm = re.search(r'href="(weixin://weixinhongbao/[^"]*)"', content)
+            pos = content.find("领取了你的")
+            name = content[:pos].rsplit(">", 1)[-1].strip() if pos > 0 else ""
+            if hm and name:
+                t = name + " 领取了你的红包"
+                card_json = json.dumps({"hongbao": True, "kind": "recv", "text": t, "url": hm.group(1)}, ensure_ascii=False)
+                text = t; ty = "hongbao"
+        else:
+            card = parse_card(content)
+            if card:
+                ty = "link"
+                text = card["title"] or "[链接]"
+                card["cover"] = fetch_cover(card["cover"])
+                card_json = json.dumps(card, ensure_ascii=False)
+            elif ty == "location":
+                m = re.search(r'<location x="([\d.]+)" y="([\d.]+)"[^>]*label="([^"]*)"', content)
+                if m:
+                    card_json = json.dumps({"x": m.group(1), "y": m.group(2), "label": m.group(3)}, ensure_ascii=False)
+                    text = m.group(3) or "[位置]"
         # voip 通话(type=50)
         if typ == 50:
             text = "📞 语音通话" if "voice" in content else "📹 视频通话"
