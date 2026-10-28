@@ -169,6 +169,12 @@ def main():
         ty = type_map(typ); text=""; mp=""; mt=""; dur=None
         if ty == "unknown" and content.lstrip().startswith(("<sysmsg", "<patMsg")):
             ty = "system"
+        # 拍一拍 patMsg: 解析 template 替换 ${username} 为昵称 → "XXX 拍了拍 YYY"
+        if "<patMsg" in content:
+            pt = re.search(r'<template><!\[CDATA\[(.*?)\]\]></template>', content, re.S)
+            if pt:
+                text = re.sub(r'\$\{([^}]+)\}', lambda mo: tname(mo.group(1)) or mo.group(1), pt.group(1))
+                ty = "system"
         if ty=="text": text=content
         if ty=="image":
             m=re.search(r'th_([0-9a-f]{32})',imgPath)
@@ -195,7 +201,7 @@ def main():
         elif ty=="link":
             t=re.search(r'<title><!\[CDATA\[(.*?)\]\]></title>',content,re.S)
             text=(t.group(1) if t else "") or "[链接]"
-        elif ty=="system": text=content.strip()[:500]
+        elif ty=="system": text=text if "<patMsg" in content else content.strip()[:500]
         else: text=(content.strip()[:100]) or f"[未知 {typ}]"
 
         # 红包消息(卡片 appmsg 或 领取提示) → 红包卡片
