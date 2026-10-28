@@ -245,7 +245,7 @@ body{font-family:"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t
 .mav{width:36px;height:36px;border-radius:4px;flex-shrink:0;font-size:14px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:500;user-select:none}
 .mb{max-width:65%;display:flex;flex-direction:column}
 .msg.mine .mb{align-items:flex-end}
-.mn{font-size:11px;color:var(--mut);margin-bottom:2px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;outline:none}
+.mn{font-size:11px;color:var(--mut);margin-bottom:2px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;outline:none}
 .mn:focus{white-space:normal;overflow:visible;text-overflow:clip}
 .bub{padding:8px 12px;border-radius:6px;font-size:14px;line-height:1.55;word-break:break-word;box-shadow:0 1px 1px rgba(0,0,0,.05);background:#fff}
 .quote{font-size:12px;color:var(--mut);background:#f2f2f2;border-left:3px solid #ddd;border-radius:4px;padding:4px 8px;margin-bottom:4px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
