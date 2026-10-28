@@ -206,6 +206,20 @@ def main():
             text = card["title"] or "[链接]"
             card["cover"] = fetch_cover(card["cover"])
             card_json = json.dumps(card, ensure_ascii=False)
+        elif ty == "location":
+            m = re.search(r'<location x="([\d.]+)" y="([\d.]+)"[^>]*label="([^"]*)"', content)
+            if m:
+                card_json = json.dumps({"x": m.group(1), "y": m.group(2), "label": m.group(3)}, ensure_ascii=False)
+                text = m.group(3) or "[位置]"
+        # voip 通话(type=50)
+        if typ == 50:
+            text = "📞 语音通话" if "voice" in content else "📹 视频通话"
+            ty = "system"
+        # 引用 refermsg → reply_to 显示被引用内容
+        reply_to = ""
+        rm = re.search(r'<refermsg>\s*<type>\d+</type>.*?<displayname>([^<]*)</displayname>\s*<content>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</content>', content, re.S)
+        if rm:
+            reply_to = (rm.group(1) + ": " + rm.group(2).strip())[:200]
 
         sess = sess_meta.get(talker)
         if sess is None:
@@ -213,7 +227,7 @@ def main():
                 "type":"group" if talker.endswith("@chatroom") else ("official" if talker.startswith("gh_") else "private")}
         oc.execute("INSERT INTO messages VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (str(mid),talker,"send" if isSend else "recv",who,
-             "我" if isSend else tname(who),int(ts),ty,text,mp,mt,dur,"",card_json))
+             "我" if isSend else tname(who),int(ts),ty,text,mp,mt,dur,reply_to,card_json))
         nmsg+=1
 
     for sid,meta in sess_meta.items():

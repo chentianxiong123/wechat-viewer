@@ -138,8 +138,24 @@ def render_msg(m, first_of_group):
                         f'<div class="cb"><div class="ct">{esc(cd.get("title") or text)}</div>'
                         + (f'<div class="cd">{esc(des)}</div>' if des else "")
                         + f'<div class="cs">{esc(src)}</div></div></a>')
+    elif typ == "location":
+        body = f'<div class="bub">{br(text)}</div>'
+        if card_json:
+            try:
+                cd = json.loads(card_json)
+            except Exception:
+                cd = None
+            if cd and cd.get("x"):
+                label = cd.get("label") or text
+                body = (f'<a class="card loc" href="https://api.map.baidu.com/marker?location={esc(cd["x"])},{esc(cd["y"])}'
+                        f'&title={esc(label)}&content={esc(label)}&output=html" target="_blank" rel="noopener">'
+                        f'<div class="cb"><div class="ct">📍 {esc(label)}</div>'
+                        f'<div class="cd">坐标 {esc(cd["x"])}, {esc(cd["y"])}</div>'
+                        f'<div class="cs">百度地图</div></div></a>')
     else:
         body = f'<div class="bub">{br(text)}</div>'
+    if reply_to and typ != "system":
+        body = f'<div class="quote">{esc(reply_to)}</div>' + body
     cls = "msg mine" if mine else "msg"
     meta = f'<div class="mt">{fmt_short(ts)}</div>'
     name = ""
@@ -223,6 +239,8 @@ body{font-family:"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t
 .mn{font-size:11px;color:var(--mut);margin-bottom:2px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;outline:none}
 .mn:focus{white-space:normal;overflow:visible;text-overflow:clip}
 .bub{padding:8px 12px;border-radius:6px;font-size:14px;line-height:1.55;word-break:break-word;box-shadow:0 1px 1px rgba(0,0,0,.05);background:#fff}
+.quote{font-size:12px;color:var(--mut);background:#f2f2f2;border-left:3px solid #ddd;border-radius:4px;padding:4px 8px;margin-bottom:4px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.quote:hover{white-space:normal;overflow:visible}
 .card{display:flex;gap:9px;background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px;max-width:300px;text-decoration:none;color:var(--txt);box-shadow:0 1px 1px rgba(0,0,0,.05)}
 .card .cc{width:88px;height:88px;object-fit:cover;border-radius:4px;flex-shrink:0;background:#eee}
 .card .cb{min-width:0;display:flex;flex-direction:column;gap:3px}
