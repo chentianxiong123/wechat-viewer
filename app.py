@@ -11,6 +11,7 @@ BASE = os.path.dirname(os.path.abspath(__file__))
 DATA = r"C:/Users/a1/Documents/HiSuite"
 DB = os.path.join(DATA, "standard.db")
 MEDIA_DIR = os.path.join(DATA, "wechat_media")
+MEDIA2_DIR = os.path.join(DATA, "media")   # 第二个图片缓存目录
 PORT = 8000
 def q(sql, args=()):
     db = sqlite3.connect(DB)
@@ -350,16 +351,19 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     self.send('<script>selSess("",0)</script><div class="none">会话不存在</div>')
                 return
+            m = None
             if path.startswith("/media/"):
-                rel = path[len("/media/"):]
-                full = os.path.join(MEDIA_DIR, rel.replace("/", os.sep))
+                m, rel = MEDIA_DIR, path[len("/media/"):]
+            elif path.startswith("/media2/"):
+                m, rel = MEDIA2_DIR, path[len("/media2/"):]
+            if m:
+                full = os.path.join(m, rel.replace("/", os.sep))
                 if not os.path.isfile(full):
                     return self.send("not found", "text/plain", 404)
                 size = os.path.getsize(full)
                 ctype = MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
                 rng = self.headers.get("Range")
                 if rng and rng.startswith("bytes="):
-                    # Range: bytes=start-end / bytes=start- / bytes=-suffix
                     spec = rng[6:].split("-")
                     start = int(spec[0]) if spec[0] else 0
                     end = int(spec[1]) if len(spec) > 1 and spec[1] else size - 1

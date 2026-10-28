@@ -26,49 +26,58 @@ def type_map(t):
     return {1:"text",3:"image",34:"voice",43:"video",47:"emoji",
             49:"link",48:"location",10000:"system",285212721:"system"}.get(t,"unknown")
 
-def build_media_index(media_dir):
-    """全量 basename -> 绝对路径 (23k 文件 O(1) 查询)"""
+MEDIA2 = os.path.join(DATA, "media")   # 第二个图片缓存目录(微信 xx/yy/{md5}.jpg+.thumb.jpg)
+
+def build_media_index():
+    """全量 basename -> 完整 URL(/media/ 或 /media2/)。两目录并集, O(1) 查询。"""
     idx = {}
-    for root, _, files in os.walk(media_dir):
-        for f in files:
-            idx[f] = os.path.join(root, f)
+    for base, prefix in ((MEDIA, "/media/"), (MEDIA2, "/media2/")):
+        if not os.path.isdir(base):
+            continue
+        for root, _, files in os.walk(base):
+            for f in files:
+                rel = os.path.relpath(os.path.join(root, f), base).replace("\\", "/")
+                idx.setdefault(f, prefix + rel)
     return idx
 
 def find_image(idx, md5):
-    """原图 {md5}.jpg > 缩略图 th_{md5} > hevc"""
-    if not md5: return ""
-    for k in (md5 + ".jpg", "th_" + md5, md5 + ".jpg_hevc", md5):
-        if k in idx: return idx[k]
+    """原图 {md5}.jpg > {md5}.thumb.jpg > 缩略图 th_{md5} > hevc"""
+    if not md5:
+        return ""
+    for k in (md5 + ".jpg", md5 + ".thumb.jpg", "th_" + md5,
+              md5 + ".jpg_hevc", md5, "th_" + md5 + ".jpg"):
+        if k in idx:
+            return idx[k]
     return ""
 
 def find_voice(idx, vid):
     """voice2/msg_{id}.amr"""
     vid = (vid or "").strip()
-    if not vid: return ""
+    if not vid:
+        return ""
     for k in ("msg_" + vid + ".amr", vid + ".amr", "msg_" + vid):
-        if k in idx: return idx[k]
+        if k in idx:
+            return idx[k]
     return ""
 
 def find_video(idx, vid):
     """video/{id}.mp4 (缩略图 {id}.jpg 兜底)"""
     vid = (vid or "").strip()
-    if not vid: return ""
+    if not vid:
+        return ""
     for k in (vid + ".mp4", vid + ".jpg"):
-        if k in idx: return idx[k]
+        if k in idx:
+            return idx[k]
     return ""
 
 def find_emoji(idx, md5):
     md5 = (md5 or "").strip()
-    if not md5: return ""
+    if not md5:
+        return ""
     for k in (md5, md5 + ".gif", md5 + ".png"):
-        if k in idx: return idx[k]
+        if k in idx:
+            return idx[k]
     return ""
-
-def rel_media(p):
-    """绝对 media 路径 -> 相对 media/ 的 posix 路径 (URL /media/xx)"""
-    if not p: return ""
-    r = os.path.relpath(p, MEDIA).replace("\\","/")
-    return r
 
 def main():
     os.makedirs(os.path.dirname(DST), exist_ok=True)
@@ -98,7 +107,7 @@ def main():
             cr,nk=contact[t]; return cr or nk or t
         return t
 
-    midx = build_media_index(MEDIA)
+    midx = build_media_index()
     sess_meta = {}
     nmsg = 0
     for r in cur.execute("SELECT msgId,talker,isSend,createTime,type,content,imgPath FROM message ORDER BY createTime ASC"):
@@ -110,23 +119,23 @@ def main():
             m=re.search(r'th_([0-9a-f]{32})',imgPath)
             if m:
                 p=find_image(midx,m.group(1))
-                if p: mp=rel_media(p); mt=mp
+                if p: mp=p; mt=p
             text="[图片]"
         elif ty=="voice":
             m=re.search(r'voicelength="?(\d+)',content)
             if m: dur=float(m.group(1))/1000.0
             p=find_voice(midx,imgPath)
-            if p: mp=rel_media(p)
+            if p: mp=p
             text="[语音]"
         elif ty=="video":
             p=find_video(midx,imgPath)
-            if p: mp=rel_media(p)
+            if p: mp=p
             text="[视频]"
         elif ty=="emoji":
             m=re.search(r'([0-9a-f]{32})',imgPath)
             if m:
                 p=find_emoji(midx,m.group(1))
-                if p: mp=rel_media(p); mt=mp
+                if p: mp=p; mt=p
             text="[表情]"
         elif ty=="link":
             t=re.search(r'<title><!\[CDATA\[(.*?)\]\]></title>',content,re.S)
