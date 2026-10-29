@@ -420,13 +420,17 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
+
 
     def do_GET(self):
         u = urlparse(self.path)
         path, params = u.path, parse_qs(u.query)
         try:
+            if path == "/favicon.ico":
+                return self.send(b"", "image/x-icon", 204)
             if path == "/":
                 return self.send(INDEX)
             if path == "/static/htmx.min.js":
