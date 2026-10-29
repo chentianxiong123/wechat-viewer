@@ -342,7 +342,7 @@ async function playVoice(audio){
     audio.src=URL.createObjectURL(new Blob([wav],{type:'audio/wav'}));
     if(duration) audio.closest('.bub').querySelector('.vt').textContent=Math.round(duration/1000)+"″";
     await audio.play();
-  }catch(e){ audio.dataset.err=1; audio.closest('.bub').querySelector('.vt').textContent='解码失败'; }
+  }catch(e){ audio.dataset.err=1; const vt=audio.closest('.bub').querySelector('.vt'); if(vt) vt.textContent='解码失败:'+String(e).slice(0,60); }
 }
 function scrollBottom(){setTimeout(()=>{const e=document.getElementById("messages");e.scrollTop=e.scrollHeight},400)}
 function selSess(name,n){document.getElementById("chname").textContent=name;
