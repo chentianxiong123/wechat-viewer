@@ -371,18 +371,13 @@ function afterLoad(){const e=document.getElementById("messages");
  setTimeout(()=>{e.scrollTop=window._st+(e.scrollHeight-window._sh)},250)}
 document.addEventListener('DOMContentLoaded',()=>{
  const m=document.getElementById("messages");
- let topCount=0, wasTop=false;
- m.addEventListener('scroll',()=>{
-   const atTop = m.scrollTop<=8;
-   if(atTop && !wasTop){  // 每次从下滚到顶算一次(停在顶部不重复)
-     topCount++;
-     if(topCount%2===0){  // 每2次滚顶触发一次加载
-       const lm=document.getElementById("loadmore");
-       if(lm&&!lm.dataset.loading){lm.dataset.loading=1; htmx.trigger(lm,'click')}
-     }
+ // 滚动条已在顶部时, 滚轮向上滚一次(wheel deltaY<0)触发一次加载
+ m.addEventListener('wheel',(e)=>{
+   if(m.scrollTop<=8 && e.deltaY<0){
+     const lm=document.getElementById("loadmore");
+     if(lm&&!lm.dataset.loading){lm.dataset.loading=1; htmx.trigger(lm,'click')}
    }
-   wasTop=atTop;
- });
+ }, {passive:true});
  // loadmore 每次加载完后允许再次触发
  document.body.addEventListener('htmx:afterSwap',()=>{setTimeout(()=>{const lm=document.getElementById("loadmore"); if(lm) delete lm.dataset.loading},600)});
 });
