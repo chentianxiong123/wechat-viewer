@@ -113,7 +113,8 @@ def render_msg(m, first_of_group):
                 '<div class="bub miss">[图片未解出]</div>')
     elif typ == "voice":
         d = f' {int(dur)}″' if dur else ""
-        body = (f'<div class="bub v"><audio controls src="{mp}"></audio></div>'
+        body = (f'<div class="bub v"><audio controls preload="none" data-src="{mp}" '
+                f'onclick="playVoice(this)"></audio><span class="vt">{d}</span></div>'
                 if mp else f'<div class="bub">🎤 [语音未解出{d}]</div>')
     elif typ == "video":
         body = (f'<video class="media" controls src="{mp}" preload="metadata" '
@@ -314,6 +315,35 @@ video.media{max-height:320px;cursor:default}
 </main>
 </div>
 <script>
+// ---------- 语音 silk→WAV 解码播放 ----------
+let _silkMod=null;
+async function loadSilk(){
+  if(!_silkMod) _silkMod = await import('/static/silk/index.mjs');
+  return _silkMod;
+}
+function pcmToWav(pcm, sr){
+  const n=pcm.length>>1, h=44, out=new Uint8Array(h+n*2);
+  const dv=new DataView(out.buffer);
+  out.set([82,73,70,70],0); dv.setUint32(4,36+n*2,true); out.set([87,65,86,69],8);
+  out.set([102,109,116,32],12); dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,1,true);
+  dv.setUint32(24,sr,true); dv.setUint32(28,sr*2,true); dv.setUint16(32,2,true); dv.setUint16(34,16,true);
+  out.set([100,97,116,97],36); dv.setUint32(40,n*2,true); out.set(pcm.subarray(0,n*2),44);
+  return out;
+}
+async function playVoice(audio){
+  if(audio.dataset.err) return;
+  if(audio.src && !audio.paused) return;
+  const url=audio.dataset.src; if(!url) return;
+  try{
+    const buf=await (await fetch(url)).arrayBuffer();
+    const silk=await loadSilk();
+    const {data,duration}=await silk.decode(buf,24000);
+    const wav=pcmToWav(data,24000);
+    audio.src=URL.createObjectURL(new Blob([wav],{type:'audio/wav'}));
+    if(duration) audio.closest('.bub').querySelector('.vt').textContent=Math.round(duration/1000)+"″";
+    await audio.play();
+  }catch(e){ audio.dataset.err=1; audio.closest('.bub').querySelector('.vt').textContent='解码失败'; }
+}
 function scrollBottom(){setTimeout(()=>{const e=document.getElementById("messages");e.scrollTop=e.scrollHeight},400)}
 function selSess(name,n){document.getElementById("chname").textContent=name;
  document.getElementById("chh").querySelector(".ct").textContent=n+" 条"}
@@ -377,7 +407,8 @@ document.addEventListener('DOMContentLoaded',()=>{
 # ---------- HTTP ----------
 MIME = {".jpg":"image/jpeg",".jpeg":"image/jpeg",".png":"image/png",".gif":"image/gif",
         ".mp4":"video/mp4",".webp":"image/webp",".mp3":"audio/mpeg",".amr":"audio/amr",
-        ".silk":"audio/silk",".js":"application/javascript",".html":"text/html"}
+        ".silk":"audio/silk",".js":"application/javascript",".html":"text/html",
+        ".mjs":"application/javascript",".wasm":"application/wasm"}
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -401,6 +432,14 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/static/htmx.min.js":
                 with open(os.path.join(BASE, "static", "htmx.min.js"), "rb") as f:
                     return self.send(f.read(), "application/javascript")
+            if path.startswith("/static/"):
+                rel = path[len("/static/"):].replace("/", os.sep)
+                full = os.path.join(BASE, "static", rel)
+                if os.path.isfile(full):
+                    ctype = MIME.get(os.path.splitext(full)[1].lower(), "application/octet-stream")
+                    with open(full, "rb") as f:
+                        return self.send(f.read(), ctype)
+                return self.send("not found", "text/plain", 404)
             if path == "/sessions":
                 return self.send(render_sessions((params.get("q") or [""])[0]))
             if path == "/session":
