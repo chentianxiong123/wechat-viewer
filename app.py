@@ -176,7 +176,7 @@ def render_msg(m, first_of_group):
     return (f'<div class="{cls}"><div class="mav" style="background:{ac}">{av}</div>'
             f'<div class="mb">{name}{body}{meta}</div></div>')
 
-def render_messages(sid, before=None, limit=50):
+def render_messages(sid, before=None, limit=10):
     s = q1("SELECT * FROM sessions WHERE id=?", (sid,))
     if not s:
         return '<div class="none">会话不存在</div>'
@@ -467,7 +467,7 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/session":
                 sid = (params.get("id") or [""])[0]
                 before = (params.get("before") or [None])[0]
-                limit = int((params.get("limit") or ["50"])[0])
+                limit = int((params.get("limit") or ["10"])[0])
                 s = q1("SELECT name FROM sessions WHERE id=?", (sid,))
                 if s:
                     n = q1("SELECT COUNT(*) c FROM messages WHERE session_id=?", (sid,))["c"]
