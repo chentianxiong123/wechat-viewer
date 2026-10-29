@@ -12,7 +12,7 @@ DATA = r"C:/Users/a1/Documents/HiSuite"
 DB = os.path.join(DATA, "standard.db")
 MEDIA_DIR = os.path.join(DATA, "wechat_media")
 MEDIA2_DIR = os.path.join(DATA, "media")   # 第二个图片缓存目录
-PORT = 8000
+PORT = 8001
 def q(sql, args=()):
     db = sqlite3.connect(DB)
     db.row_factory = sqlite3.Row
@@ -113,8 +113,8 @@ def render_msg(m, first_of_group):
                 '<div class="bub miss">[图片未解出]</div>')
     elif typ == "voice":
         d = f' {int(dur)}″' if dur else ""
-        body = (f'<div class="bub v"><audio controls preload="none" data-src="{mp}" '
-                f'onclick="playVoice(this)"></audio><span class="vt">{d}</span></div>'
+        body = (f'<div class="bub v"><button class="vbtn">▶</button>'
+                f'<audio hidden preload="none" data-src="{mp}"></audio><span class="vt">{d}</span></div>'
                 if mp else f'<div class="bub">🎤 [语音未解出{d}]</div>')
     elif typ == "video":
         body = (f'<video class="media" controls src="{mp}" preload="metadata" '
@@ -270,7 +270,9 @@ body{font-family:"Microsoft YaHei",sans-serif;background:var(--bg);color:var(--t
 .media.em{max-width:120px;max-height:120px}
 .bub.miss{background:#eee;color:#999;font-size:13px}
 .bub.link{background:#fff;border:1px solid var(--bd)}
-.bub.v{padding:6px}
+.bub.v{display:flex;align-items:center;gap:8px;padding:8px 10px}
+.bub.v .vbtn{flex:none;width:34px;height:34px;border-radius:50%;background:var(--acc);color:#fff;border:none;font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+.bub.v .vt{font-size:12px;color:var(--mut);white-space:nowrap}
 audio{height:30px;max-width:240px}
 video.media{max-height:320px;cursor:default}
 #ib{background:#fff;border-top:1px solid var(--bd);padding:12px 16px 16px;flex-shrink:0;height:110px}
@@ -330,20 +332,36 @@ function pcmToWav(pcm, sr){
   out.set([100,97,116,97],36); dv.setUint32(40,n*2,true); out.set(pcm.subarray(0,n*2),44);
   return out;
 }
-async function playVoice(audio){
-  if(audio.dataset.err) return;
-  if(audio.src && !audio.paused) return;
+async function playVoice(bub){
+  const audio = bub.querySelector('audio');
+  const btn = bub.querySelector('.vbtn');
+  if(!audio || !btn || audio.dataset.err) return;
+  if(audio.src){  // 已解码: 切换播放/暂停
+    if(audio.paused){ audio.play().catch(()=>{}); btn.textContent='⏸'; }
+    else { audio.pause(); btn.textContent='▶'; }
+    return;
+  }
   const url=audio.dataset.src; if(!url) return;
+  if(audio.dataset.loading) return;  // 解码中防重
+  audio.dataset.loading = 1;
   try{
     const buf=await (await fetch(url)).arrayBuffer();
     const silk=await loadSilk();
     const {data,duration}=await silk.decode(buf,24000);
     const wav=pcmToWav(data,24000);
     audio.src=URL.createObjectURL(new Blob([wav],{type:'audio/wav'}));
-    if(duration) audio.closest('.bub').querySelector('.vt').textContent=Math.round(duration/1000)+"″";
+    if(duration) bub.querySelector('.vt').textContent=Math.round(duration/1000)+"″";
     await audio.play();
-  }catch(e){ audio.dataset.err=1; const vt=audio.closest('.bub').querySelector('.vt'); if(vt) vt.textContent='解码失败:'+String(e).slice(0,60); }
+    btn.textContent='⏸';
+    audio.onended=()=>{ btn.textContent='▶'; };
+  }catch(e){ audio.dataset.err=1; audio.dataset.loading=0; bub.querySelector('.vt').textContent='解码失败:'+String(e).slice(0,60); }
 }
+// 捕获级 pointerdown: 点击语音气泡任意处(含自绘播放按钮)都触发
+document.addEventListener('pointerdown', (e) => {
+  const bub = e.composedPath().find(el => el && el.classList && el.classList.contains('bub'));
+  if(bub){ playVoice(bub); }
+}, true);
+
 function scrollBottom(){setTimeout(()=>{const e=document.getElementById("messages");e.scrollTop=e.scrollHeight},400)}
 function selSess(name,n){document.getElementById("chname").textContent=name;
  document.getElementById("chh").querySelector(".ct").textContent=n+" 条"}
