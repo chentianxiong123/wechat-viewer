@@ -315,7 +315,7 @@ video.media{max-height:320px;cursor:default}
 </main>
 </div>
 <script>
-// ---------- 语音 silk→WAV 解码播放 ----------
+console.log('wechat-viewer v5: 语音silk-wasm解码版');
 let _silkMod=null;
 async function loadSilk(){
   if(!_silkMod) _silkMod = await import('/static/silk/index.mjs');
