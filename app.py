@@ -600,6 +600,108 @@ def render_rawhome():
     return "".join(out)
 
 
+# ---- 孤儿媒体扫描(排除已引用, 7类) ----
+_orphan_cache = {"ts": 0, "data": None}
+
+def _orphan_type(fp):
+    try:
+        with open(fp, "rb") as f:
+            head = f.read(16)
+    except OSError:
+        return "other"
+    if head[:3] == b"\xff\xd8\xff":
+        return "img"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "img"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "img"
+    if head[4:8] == b"ftyp":
+        return "video"
+    if head[:4] == b"RIFF" or head[:3] == b"#!":
+        return "audio"
+    return "other"
+
+def scan_orphans(force=False):
+    """扫描媒体库, 返回 [{label, items:[{src,size,type}]}], 缓存10分钟"""
+    import time as _t
+    if not force and _orphan_cache["data"] and _t.time() - _orphan_cache["ts"] < 600:
+        return _orphan_cache["data"]
+    db = sqlite3.connect(DB)
+    db.row_factory = sqlite3.Row
+    refs = set()
+    try:
+        for r in db.execute("SELECT media_path FROM messages WHERE media_path!=''"):
+            p = r["media_path"]
+            if p.startswith("/media/"):
+                refs.add(os.path.normpath(os.path.join(MEDIA_DIR, p[7:].replace("/", os.sep))))
+            elif p.startswith("/media2/"):
+                refs.add(os.path.normpath(os.path.join(MEDIA2_DIR, p[8:].replace("/", os.sep))))
+    finally:
+        db.close()
+    cats = [("失效图片", [("image2", MEDIA_DIR), ("image", MEDIA_DIR)]),
+            ("失效视频", [("video", MEDIA_DIR)]),
+            ("失效语音", [("voice2", MEDIA_DIR)]),
+            ("失效收藏", [("favorite", MEDIA_DIR)]),
+            ("失效封面", [("covers", MEDIA2_DIR)]),
+            ("失效音乐", [("music", MEDIA_DIR)]),
+            ("失效聊天卡", [("record", MEDIA_DIR)])]
+    out = []
+    for label, dirs in cats:
+        items = []
+        for d, base in dirs:
+            b = os.path.join(base, d)
+            if not os.path.isdir(b):
+                continue
+            for root, _, fs in os.walk(b):
+                for f in fs:
+                    fp = os.path.normpath(os.path.join(root, f))
+                    if fp in refs:
+                        continue
+                    try:
+                        sz = os.path.getsize(fp)
+                    except OSError:
+                        continue
+                    rel = "/media/" + os.path.relpath(fp, MEDIA_DIR).replace(os.sep, "/")
+                    items.append({"src": rel, "name": f, "size": sz, "type": _orphan_type(fp)})
+        items.sort(key=lambda x: -x["size"])
+        out.append({"label": label, "items": items})
+    _orphan_cache["data"] = out
+    _orphan_cache["ts"] = _t.time()
+    return out
+
+
+def render_orphans(page=1, cat="all"):
+    limit = 60
+    data = scan_orphans()
+    # 分类标签
+    tabs = ['<div class="arttabs">']
+    alln = sum(len(c["items"]) for c in data)
+    tabs.append(f'<button class="{"act" if cat=="all" else ""}" hx-get="/raw/orphans" hx-target="#raw-body" hx-swap="innerHTML">全部 ({alln})</button>')
+    for c in data:
+        act = " act" if cat == c["label"] else ""
+        tabs.append(f'<button class="{act.strip()}" hx-get="/raw/orphans?cat={c["label"]}" hx-target="#raw-body" hx-swap="innerHTML">{c["label"]} ({len(c["items"])})</button>')
+    tabs.append('</div>')
+    out = [_raw_head(f"孤儿媒体 ({alln})", "媒体库中无消息引用的文件 · 点击查看")]
+    out += tabs
+    if cat != "all":
+        cur = next((c for c in data if c["label"] == cat), None)
+        items = cur["items"] if cur else []
+    else:
+        items = [i for c in data for i in c["items"]]
+    page_items = items[(page - 1) * limit:page * limit]
+    if not items:
+        out.append('<div class="none">无孤儿媒体</div>')
+    for it in page_items:
+        ic = {"img": "🖼", "video": "🎬", "audio": "🔊", "other": "📄"}.get(it["type"], "📄")
+        out.append(f'<div class="ccard"><div class="cav">{ic}</div><div class="cinfo">'
+                   f'<div class="cname">{esc(it["name"][:60])}</div>'
+                   f'<div class="csub">{esc(it["type"])} · {it["size"]//1024}KB</div>'
+                   f'<div class="csig"><a href="{it["src"]}" target="_blank">查看</a></div></div></div>')
+    if page_items:
+        out.append(_pager(page, limit, len(items), "/raw/orphans?cat=" + cat))
+    return "".join(out)
+
+
 RAW_TABS = [
     ("home", "总览", "/raw/home"),
     ("contacts", "联系人", "/raw/contacts"),
@@ -610,7 +712,7 @@ RAW_TABS = [
     ("gallery", "图片", "/raw/gallery"),
     ("voices", "语音", "/raw/voices"),
     ("videos", "视频", "/raw/videos"),
-    ("playhist", "播放历史", "/raw/playhist"),
+    ("orphans", "孤儿媒体", "/raw/orphans"),
     ("account", "账号", "/raw/account"),
 ]
 
@@ -638,6 +740,8 @@ def render_raw(section, page=1, q="", amtype="all"):
         return render_rawvideos(page)
     if section == "playhist":
         return render_playhist(page)
+    if section == "orphans":
+        return render_orphans(page, q or "all")
     if section == "account":
         return render_account(page)
     return render_rawhome()
@@ -822,7 +926,7 @@ const RAW_TABS = [
  ["home","总览","/raw/home"],["contacts","联系人","/raw/contacts"],["articles","公众号","/raw/articles"],
  ["rooms","群聊","/raw/rooms"],["money","红包转账","/raw/money"],["fmessage","好友申请","/raw/fmessage"],
  ["gallery","图片","/raw/gallery"],["voices","语音","/raw/voices"],["videos","视频","/raw/videos"],
- ["playhist","播放历史","/raw/playhist"],["account","账号","/raw/account"]];
+ ["playhist","播放历史","/raw/playhist"],["orphans","孤儿媒体","/raw/orphans"],["account","账号","/raw/account"]];
 let _rawCur = "home";
 function switchMode(m){
   document.getElementById('tab-chat').classList.toggle('act', m==='chat');
@@ -1011,6 +1115,7 @@ class Handler(BaseHTTPRequestHandler):
                 page = max(1, int((params.get("page") or ["1"])[0]))
                 q_ = (params.get("q") or [""])[0]
                 amtype = (params.get("amtype") or ["all"])[0]
+                cat = (params.get("cat") or ["all"])[0]
                 if sec == "money":
                     kind = (params.get("kind") or ["all"])[0]
                     return self.send(render_money(page, kind))
@@ -1026,7 +1131,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(render_playhist(page))
                 if sec == "account":
                     return self.send(render_account(page))
-                return self.send(render_raw(sec, page, q_, amtype))
+                return self.send(render_raw(sec, page, cat if sec == "orphans" else q_, amtype))
             if path == "/sessions":
                 return self.send(render_sessions((params.get("q") or [""])[0]))
             if path == "/session":
