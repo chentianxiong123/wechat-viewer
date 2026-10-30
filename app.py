@@ -276,9 +276,30 @@ def _pager(page, limit, total, url):
     if total_pages <= 1:
         return ""
     sep = "&" if "?" in url else "?"
-    prev = (f'<button class="pg" hx-get="{url}{sep}page={page-1}" hx-target="#raw-body" hx-swap="innerHTML">‹ 上一页</button>' if page > 1 else "")
-    nxt = (f'<button class="pg" hx-get="{url}{sep}page={page+1}" hx-target="#raw-body" hx-swap="innerHTML">下一页 ›</button>' if page < total_pages else "")
-    return (f'<div class="pager">{prev}<span class="pgi">第 {page}/{total_pages} 页 · {total} 条</span>{nxt}</div>')
+
+    def pg(p, label=None, act=False, dis=False):
+        cls = "pg" + (" act" if act else "")
+        if dis:
+            return f'<button class="{cls}" disabled>{label or p}</button>'
+        return (f'<button class="{cls}" hx-get="{url}{sep}page={p}" '
+                f'hx-target="#raw-body" hx-swap="innerHTML">{label or p}</button>')
+
+    # 页码窗口: 1 2 ... p-1 p p+1 ... N-1 N
+    win = sorted({x for x in (1, 2, page - 1, page, page + 1, total_pages - 1, total_pages)
+                  if 1 <= x <= total_pages})
+    parts, last = [], 0
+    for x in win:
+        if x - last > 1:
+            parts.append('<span class="pgd">…</span>')
+        parts.append(pg(x, act=(x == page)))
+        last = x
+    prev = pg(page - 1, "‹", dis=(page <= 1))
+    nxt = pg(page + 1, "›", dis=(page >= total_pages))
+    jump = (f'<input class="pgjump" type="number" min="1" max="{total_pages}" value="{page}" '
+            f'onkeydown="if(event.key===\'Enter\')pgJump(this,\'{url}\',{total_pages})">'
+            f'<button class="pg pgj" onclick="pgJump(this,\'{url}\',{total_pages})">跳转</button>')
+    return (f'<div class="pager">{prev}{"".join(parts)}{nxt}'
+            f'<span class="pgi">第 {page}/{total_pages} 页 · {total} 条</span>{jump}</div>')
 
 
 def _raw_head(title, sub=""):
@@ -480,7 +501,7 @@ def render_gallery(page=1):
     for f in page_items:
         p = "/media/" + idx[f]
         n += 1
-        out.append(f'<a class="gitem" href="{p}" target="_blank"><img loading="lazy" src="{p}" alt=""></a>')
+        out.append(f'<a class="gitem" href="{p}" onclick="openLb(this.querySelector(\'img\'));return false"><img class="media" loading="lazy" src="{p}" data-src="{p}" alt=""></a>')
     out.append("</div>")
     if n == 0:
         out.append('<div class="none">无缩略图可显示</div>')
@@ -693,10 +714,15 @@ def render_orphans(page=1, cat="all"):
         out.append('<div class="none">无孤儿媒体</div>')
     for it in page_items:
         ic = {"img": "🖼", "video": "🎬", "audio": "🔊", "other": "📄"}.get(it["type"], "📄")
+        # 图片孤儿复用主功能区灯箱, 视频/音频/其他保持浏览器原生播放/查看
+        if it["type"] == "img":
+            view = f'<a href="{it["src"]}" onclick="openLb(this);return false" data-src="{it["src"]}">查看</a>'
+        else:
+            view = f'<a href="{it["src"]}" target="_blank">查看</a>'
         out.append(f'<div class="ccard"><div class="cav">{ic}</div><div class="cinfo">'
                    f'<div class="cname">{esc(it["name"][:60])}</div>'
                    f'<div class="csub">{esc(it["type"])} · {it["size"]//1024}KB</div>'
-                   f'<div class="csig"><a href="{it["src"]}" target="_blank">查看</a></div></div></div>')
+                   f'<div class="csig">{view}</div></div></div>')
     if page_items:
         out.append(_pager(page, limit, len(items), "/raw/orphans?cat=" + cat))
     return "".join(out)
@@ -890,6 +916,12 @@ video.media{max-height:320px;cursor:default}
 #rawpane .pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:16px}
 #rawpane .pg{background:#fff;border:1px solid var(--bd);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px}
 #rawpane .pg:hover{border-color:var(--acc);color:var(--acc)}
+#rawpane .pg.act{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:bold}
+#rawpane .pg:disabled{opacity:.4;cursor:default}
+#rawpane .pgd{color:var(--mut);padding:0 2px;font-size:13px}
+#rawpane .pgjump{width:64px;padding:5px 8px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none}
+#rawpane .pgjump:focus{border-color:var(--acc)}
+#rawpane .pgj{padding:6px 10px}
 #rawpane .pgi{font-size:12px;color:var(--mut)}
 #rawpane .rawsearch{margin-bottom:12px;display:flex;gap:8px}
 #rawpane .rawsearch input{flex:1;max-width:320px;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none}
@@ -959,6 +991,15 @@ async function loadRaw(sec){
   rp.querySelectorAll('.tnav').forEach(b=>{ if(b.getAttribute('onclick')!=='') b.style.cursor='pointer'; });
   if (window.htmx) htmx.process(rp);
 }
+// 分页跳转: 输入页码后跳到指定页(htmx局部加载#raw-body)
+function pgJump(btn, url, maxPage){
+  const inp=btn.previousElementSibling;
+  let p=parseInt(inp.value,10)||1;
+  p=Math.min(maxPage, Math.max(1, p));
+  const sep=url.includes('?')?'&':'?';
+  if(window.htmx) htmx.ajax('GET', url+sep+'page='+p, {target:'#raw-body', swap:'innerHTML'});
+  else location.href=url+sep+'page='+p;
+}
 
 console.log('wechat-viewer v5: 语音silk-wasm解码版');
 let _silkMod=null;
@@ -1027,7 +1068,11 @@ document.addEventListener('DOMContentLoaded',()=>{
 // ---------- lightbox 图片浏览器 ----------
 const lb = { list:[], idx:0, scale:1, tx:0, ty:0 };
 function openLb(el){
-  lb.list=[...document.querySelectorAll('#messages img.media[data-src]')].map(i=>i.dataset.src);
+  if(!el||!el.dataset||!el.dataset.src)return;
+  // 复用主功能区灯箱: 收集点击元素所在区域(#messages聊天 或 #raw-body全库)的所有图片
+  const scope=el.closest('#messages,#raw-body')||document;
+  lb.list=[...scope.querySelectorAll('img[data-src]')].map(i=>i.dataset.src);
+  if(!lb.list.includes(el.dataset.src)) lb.list=[el.dataset.src];
   lb.idx=Math.max(0, lb.list.indexOf(el.dataset.src));
   lb.scale=1; lb.tx=0; lb.ty=0;
   renderLb(); document.getElementById('lb').classList.add('open');
