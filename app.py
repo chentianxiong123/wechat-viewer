@@ -17,7 +17,7 @@ CONFIG = {}
 
 def load_config():
     """加载config.json并重算全局路径; 每个功能扫一个可配置目录"""
-    global CONFIG, DATA, DB, RAW_DB, MEDIA_DIR, MEDIA2_DIR
+    global CONFIG, DATA, DB, RAW_DB, DECRYPTED_DB, MEDIA_DIR, MEDIA2_DIR
     CONFIG = dict(DEFAULT_CONFIG)
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
@@ -27,6 +27,7 @@ def load_config():
     DATA = CONFIG.get("data_dir", DEFAULT_CONFIG["data_dir"])
     DB = os.path.join(DATA, "standard.db")
     RAW_DB = os.path.join(DATA, "decrypted_view.db")
+    DECRYPTED_DB = os.path.join(DATA, "decrypted.db")
     MEDIA_DIR = os.path.join(DATA, "wechat_media")
     MEDIA2_DIR = os.path.join(DATA, "media")
     if not CONFIG.get("sms_dir"):
@@ -50,6 +51,24 @@ def rq(sql, args=()):
 
 def rq1(sql, args=()):
     db = sqlite3.connect(f"file:{RAW_DB}?mode=ro", uri=True)
+    db.row_factory = sqlite3.Row
+    try:
+        return db.execute(sql, args).fetchone()
+    finally:
+        db.close()
+
+
+def dq(sql, args=()):
+    db = sqlite3.connect(f"file:{DECRYPTED_DB}?mode=ro", uri=True)
+    db.row_factory = sqlite3.Row
+    try:
+        return db.execute(sql, args).fetchall()
+    finally:
+        db.close()
+
+
+def dq1(sql, args=()):
+    db = sqlite3.connect(f"file:{DECRYPTED_DB}?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
     try:
         return db.execute(sql, args).fetchone()
@@ -108,6 +127,12 @@ def q1(sql, args=()):
         return db.execute(sql, args).fetchone()
     finally:
         db.close()
+
+# standard.db 查询别名 (避免被局部变量 q 遮蔽)
+_sq = q
+_sq1 = q1
+
+
 
 # ---------- 工具 ----------
 def esc(s):
@@ -253,24 +278,34 @@ def render_msg(m, first_of_group):
         name = f'<div class="mn" tabindex="0" title="{esc(sname)}">{esc(sname)}</div>'
     av = "我" if mine else (sname or "?")[0]
     ac = "#07c160" if mine else avatar_color(sname or "?")
-    return (f'<div class="{cls}"><div class="mav" style="background:{ac}">{av}</div>'
+    return (f'<div class="{cls}" data-mid="{mid}"><div class="mav" style="background:{ac}">{av}</div>'
             f'<div class="mb">{name}{body}{meta}</div></div>')
 
-def render_messages(sid, before=None, limit=10):
+def render_messages(sid, before=None, limit=10, focus=None):
     s = q1("SELECT * FROM sessions WHERE id=?", (sid,))
     if not s:
         return '<div class="none">会话不存在</div>'
     # (timestamp,id) 复合游标; limit+1 探测是否还有更早
     sel = ("SELECT id,session_id,direction,sender,sender_name,timestamp,type,text,"
            "media_path,media_thumb,media_duration,reply_to,card FROM messages WHERE session_id=? ")
-    if before:
+    if focus:
+        # 定位: 以 focus 消息为窗口上界, 取其及之前 limit 条
+        fm = q1("SELECT timestamp,id FROM messages WHERE id=?", (focus,))
+        if not fm:
+            return '<div class="none">目标消息不存在</div>'
+        rows = q(sel + "AND (timestamp<? OR (timestamp=? AND id<=?)) "
+                 "ORDER BY timestamp DESC, id DESC LIMIT ?",
+                 (sid, fm["timestamp"], fm["timestamp"], fm["id"], limit))
+        has_more = False
+    elif before:
         ts, bid = map(int, before.split("_"))
         rows = q(sel + "AND (timestamp<? OR (timestamp=? AND id<?)) "
                  "ORDER BY timestamp DESC, id DESC LIMIT ?",
                  (sid, ts, ts, bid, limit + 1))
+        has_more = len(rows) > limit
     else:
         rows = q(sel + "ORDER BY timestamp DESC, id DESC LIMIT ?", (sid, limit + 1))
-    has_more = len(rows) > limit
+        has_more = len(rows) > limit
     msgs = list(reversed(rows[:limit]))  # 升序渲染(最早在前)
     parts = []
     last_ts = 0
@@ -649,6 +684,163 @@ def render_rawhome():
     return "".join(out)
 
 
+# ---- 聊天统计 ----
+def render_stats():
+    total = rq1("SELECT COUNT(*) c FROM message")["c"]
+    sess_n = rq1("SELECT COUNT(DISTINCT talker) c FROM message")["c"]
+    # 类型分布
+    trows = rq("SELECT type, COUNT(*) n FROM message GROUP BY type ORDER BY n DESC LIMIT 10")
+    # 按月趋势
+    months = rq("""SELECT strftime('%Y-%m', createTime/1000, 'unixepoch') ym, COUNT(*) n
+                   FROM message WHERE createTime>0 GROUP BY ym ORDER BY ym""")
+    # 活跃会话 TOP
+    top = rq("""SELECT m.talker, COUNT(*) n, MAX(m.createTime) mx
+                FROM message m GROUP BY m.talker ORDER BY n DESC LIMIT 10""")
+    # 时段分布
+    hours = rq("SELECT (createTime/1000/3600)%24 h, COUNT(*) n FROM message WHERE createTime>0 GROUP BY h")
+
+    out = [_raw_head(f"聊天统计", f"message {total} 条 · {sess_n} 个会话")]
+    # 类型分布
+    out.append('<div class="stats">')
+    out.append('<div class="statblock"><div class="sb-t">消息类型分布</div>')
+    mx = max([r["n"] for r in trows] or [1])
+    for r in trows:
+        tn = TYPE_NAME.get(r["type"], f"类型{r['type']}")
+        w = int(r["n"] * 100 / mx)
+        out.append(f'<div class="hb"><span class="hb-l">{esc(tn)}</span>'
+                   f'<span class="hb-bar"><span class="hb-f" style="width:{w}%"></span></span>'
+                   f'<span class="hb-n">{r["n"]}</span></div>')
+    out.append('</div>')
+    # 按月趋势
+    out.append('<div class="statblock"><div class="sb-t">按月消息量</div>')
+    mxm = max([r["n"] for r in months] or [1])
+    for r in months[-24:]:
+        w = int(r["n"] * 100 / mxm)
+        out.append(f'<div class="hb"><span class="hb-l">{esc(r["ym"])}</span>'
+                   f'<span class="hb-bar"><span class="hb-f" style="width:{w}%"></span></span>'
+                   f'<span class="hb-n">{r["n"]}</span></div>')
+    out.append('</div>')
+    # 活跃会话
+    out.append('<div class="statblock"><div class="sb-t">活跃会话 TOP10</div>')
+    names = {r["username"]: (r["conRemark"] or r["nickname"] or r["username"])
+             for r in rq("SELECT username,nickname,conRemark FROM rcontact")}
+    for r in top:
+        nm = names.get(r["talker"], r["talker"])
+        w = int(r["n"] * 100 / (top[0]["n"] if top else 1))
+        out.append(f'<div class="hb"><span class="hb-l" title="{esc(r["talker"])}">{esc(nm)}</span>'
+                   f'<span class="hb-bar"><span class="hb-f" style="width:{w}%"></span></span>'
+                   f'<span class="hb-n">{r["n"]}</span></div>')
+    out.append('</div>')
+    # 时段分布
+    out.append('<div class="statblock"><div class="sb-t">时段分布 (24h)</div>')
+    hm = {r["h"]: r["n"] for r in hours}
+    mxh = max(hm.values()) if hm else 1
+    out.append('<div class="hbars">')
+    for h in range(24):
+        n = hm.get(h, 0)
+        ht = int(n * 100 / mxh) if mxh else 0
+        out.append(f'<div class="hbcol" title="{h}时 {n}条">'
+                   f'<span class="hbc-f" style="height:{ht}%"></span>'
+                   f'<span class="hbc-l">{h}</span></div>')
+    out.append('</div></div>')
+    out.append('</div>')
+    return "".join(out)
+
+
+# ---- 跨会话全文搜索 ----
+def render_search(page=1, kw="", target="#searchpane"):
+    limit = 30
+    q = kw
+    if not q:
+        out = [_raw_head("全文搜索", "跨全部会话搜索消息内容 · 点击结果打开会话并定位")]
+        out.append('<div class="rawsearch"><input name="q" placeholder="输入关键词搜索所有消息..." '
+                   f'hx-get="/raw/search" hx-trigger="input delay:300ms" hx-target="{target}" '
+                   'hx-swap="innerHTML"></div>')
+        out.append('<div class="none">输入关键词开始搜索（匹配消息内容）</div>')
+        return "".join(out)
+    total = _sq1("SELECT COUNT(*) c FROM messages WHERE text LIKE ?", (f"%{q}%",))["c"]
+    rows = _sq("""SELECT m.id,m.session_id,m.timestamp,m.text,m.type,s.name
+                FROM messages m LEFT JOIN sessions s ON s.id=m.session_id
+                WHERE m.text LIKE ? ORDER BY m.timestamp DESC LIMIT ? OFFSET ?""",
+             (f"%{q}%", limit, (page - 1) * limit))
+    out = [_raw_head(f"全文搜索 ({total})", f"关键词「{q}」 · 点击结果打开会话并定位")]
+    out.append('<div class="rawsearch"><input name="q" placeholder="输入关键词搜索所有消息..." value="'
+               + esc(q) + f'" hx-get="/raw/search" hx-trigger="input delay:300ms" hx-target="{target}" '
+               'hx-swap="innerHTML"></div>')
+    for r in rows:
+        nm = r["name"] or r["session_id"]
+        txt = r["text"] or ""
+        # 高亮关键词
+        hi = txt.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        hi = re.sub(re.escape(q), f'<mark>{re.escape(q)}</mark>', hi, flags=re.I)
+        out.append(f'<div class="hit" onclick="openHit(\'{esc(r["session_id"])}\',{r["id"]})">'
+                   f'<div class="hit-h"><span class="hit-n">{esc(nm)}</span>'
+                   f'<span class="hit-t">{esc(fmt_short(r["timestamp"]) if r["timestamp"] else "")}</span></div>'
+                   f'<div class="hit-c">{hi}</div></div>')
+    if not rows:
+        out.append('<div class="none">无匹配消息</div>')
+    out.append(_pager(page, limit, total, "/raw/search?q=" + quote(q), target))
+    return "".join(out)
+
+# ---- 文件传输列表 ----
+def render_files(page=1, q=""):
+    limit = 50
+    total = dq1("SELECT COUNT(*) c FROM appattach")["c"]
+    rows = dq("SELECT * FROM appattach ORDER BY createTime DESC LIMIT ? OFFSET ?",
+              (limit, (page - 1) * limit))
+    out = [_raw_head(f"文件传输 ({total})", "appattach 微信附件记录")]
+    out.append('<div class="smslist">')
+    for r in rows:
+        sz = r["totalLen"] or 0
+        def fsz(n):
+            for u in ("B", "KB", "MB", "GB"):
+                if n < 1024:
+                    return f"{n:.0f}{u}" if u == "B" else f"{n:.1f}{u}"
+                n /= 1024
+            return f"{n:.1f}TB"
+        out.append(f'<div class="sms"><div class="sms-h"><span class="sms-n">{esc(str(r["appId"]))}</span>'
+                   f'<span class="sms-t">{esc(fmt_short(r["createTime"]) if r["createTime"] else "")}</span></div>'
+                   f'<div class="sms-c">类型 {r["type"]} · 大小 {fsz(sz)} · 媒体ID {esc(str(r["mediaSvrId"]))}</div></div>')
+    out.append('</div>')
+    if not rows:
+        out.append('<div class="none">无附件</div>')
+    out.append(_pager(page, limit, total, "/raw/files"))
+    return "".join(out)
+
+
+# ---- 公众号时间线 ----
+def render_biztl(page=1, q=""):
+    limit = 30
+    total = dq1("SELECT COUNT(*) c FROM BizTimeLineInfo")["c"]
+    rows = dq("""SELECT b.msgId,b.talker,b.createTime,b.content,b.imgPath,c.nickname,c.conRemark
+                 FROM BizTimeLineInfo b LEFT JOIN rcontact c ON c.username=b.talker
+                 ORDER BY b.createTime DESC LIMIT ? OFFSET ?""",
+              (limit, (page - 1) * limit))
+    out = [_raw_head(f"公众号时间线 ({total})", "BizTimeLineInfo 公众号推文流")]
+    for r in rows:
+        xml = r["content"] or ""
+        # BizTimeLineInfo 用微信专有 ~SEMI_XML~ 格式, title 出现在 title\x00之后
+        m = re.search(r"<title>(.*?)</title>", xml, re.S)
+        if not m:
+            m = re.search(r"title[^\w]{1,4}(.{2,180}?)(?=[*.\x00\)])", xml, re.S)
+        title = m.group(1) if m else "(无标题)"
+        nm = r["conRemark"] or r["nickname"] or r["talker"]
+        img = ""
+        ip = r["imgPath"] or ""
+        if "://" in ip:
+            fn = ip.split("://")[-1]
+            img = media_path_exact("image2", fn)
+        cv = f'<img class="btl-img" src="{img}" loading="lazy">' if img else ""
+        out.append(f'<div class="art"><div class="art-t">{esc(title)}</div>'
+                   f'<div class="art-m"><span class="badge">推文</span>{esc(nm)} · '
+                   f'{esc(fmt_time(r["createTime"]) if r["createTime"] else "")}</div>'
+                   f'{cv}</div>')
+    if not rows:
+        out.append('<div class="none">无推文</div>')
+    out.append(_pager(page, limit, total, "/raw/biztl"))
+    return "".join(out)
+
+
 # ---- 孤儿媒体扫描(排除已引用, 7类) ----
 _orphan_cache = {"ts": 0, "data": None}
 
@@ -920,9 +1112,8 @@ RAW_TABS = [
     ("voices", "语音", "/raw/voices"),
     ("videos", "视频", "/raw/videos"),
     ("orphans", "孤儿媒体", "/raw/orphans"),
-    ("sms", "短信", "/raw/sms"),
-    ("phonecontacts", "手机联系人", "/raw/phonecontacts"),
-    ("settings", "设置", "/raw/settings"),
+    ("files", "文件", "/raw/files"),
+    ("biztl", "推文", "/raw/biztl"),
     ("account", "账号", "/raw/account"),
 ]
 
@@ -952,12 +1143,21 @@ def render_raw(section, page=1, q="", amtype="all"):
         return render_playhist(page)
     if section == "orphans":
         return render_orphans(page, q or "all")
+    if section == "files":
+        return render_files(page, q)
+    if section == "biztl":
+        return render_biztl(page, q)
     if section == "sms":
         return render_sms(page, q)
     if section == "phonecontacts":
         return render_phonecontacts(page, q)
     if section == "settings":
         return render_settings(q == "1")
+    if section == "search":
+        return render_search(page, q)
+    if section == "stats":
+        return render_stats()
+
     if section == "account":
         return render_account(page)
     return render_rawhome()
@@ -1151,6 +1351,29 @@ video.media{max-height:320px;cursor:default}
 .rpane .setrow label{display:block;font-size:12px;color:#555;margin-bottom:4px}
 .rpane .setinp{width:100%;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none;box-sizing:border-box}
 .rpane .setinp:focus{border-color:var(--acc)}
+/* 统计 */
+.rpane .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
+.rpane .statblock{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px}
+.rpane .sb-t{font-size:13px;font-weight:bold;margin-bottom:10px}
+.rpane .hb{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px}
+.rpane .hb-l{width:110px;text-align:right;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.rpane .hb-bar{flex:1;height:14px;background:#f0f0f0;border-radius:3px;overflow:hidden}
+.rpane .hb-f{display:block;height:100%;background:var(--acc);border-radius:3px;min-width:2px}
+.rpane .hb-n{width:60px;color:var(--mut);flex-shrink:0}
+.rpane .hbars{display:flex;align-items:flex-end;gap:3px;height:120px;padding-top:8px}
+.rpane .hbcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.rpane .hbc-f{width:100%;background:var(--acc);border-radius:2px 2px 0 0;min-height:2px}
+.rpane .hbc-l{font-size:9px;color:var(--mut);margin-top:3px}
+/* 全文搜索结果 */
+.rpane .hit{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:box-shadow .15s}
+.rpane .hit:hover{box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.rpane .hit-h{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.rpane .hit-n{font-size:13px;font-weight:500}
+.rpane .hit-t{font-size:11px;color:var(--mut);flex-shrink:0}
+.rpane .hit-c{font-size:12px;color:#555;margin-top:3px;line-height:1.5;word-break:break-all}
+.rpane .hit-c mark{background:#fff3a0;border-radius:2px;padding:0 2px}
+.rpane .btl-img{width:120px;height:80px;object-fit:cover;border-radius:4px;margin-top:8px;background:#eee}
+.msg.hit-focus{background:#fffbe6;border-radius:8px;outline:2px solid #ffe58f}
 </style></head>
 <body>
 <nav id="topnav">
@@ -1158,6 +1381,8 @@ video.media{max-height:320px;cursor:default}
  <button class="tnav" id="tab-raw" onclick="switchMode('raw')">📚 全库</button>
  <button class="tnav" id="tab-sms" onclick="switchMode('sms')">✉️ 短信</button>
  <button class="tnav" id="tab-contacts" onclick="switchMode('contacts')">👥 联系人</button>
+ <button class="tnav" id="tab-search" onclick="switchMode('search')">🔍 搜索</button>
+ <button class="tnav" id="tab-stats" onclick="switchMode('stats')">📊 统计</button>
  <button class="tnav" id="tab-settings" onclick="switchMode('settings')">⚙️ 设置</button>
 </nav>
 <div id="app">
@@ -1181,19 +1406,25 @@ video.media{max-height:320px;cursor:default}
 <div id="smspane" class="rpane" style="display:none"></div>
 <div id="contactpane" class="rpane" style="display:none"></div>
 <div id="settingspane" class="rpane" style="display:none"></div>
+<div id="searchpane" class="rpane" style="display:none"></div>
+<div id="statspane" class="rpane" style="display:none"></div>
 <script>
 const RAW_TABS = [
  ["home","总览","/raw/home"],["contacts","联系人","/raw/contacts"],["articles","公众号","/raw/articles"],
  ["rooms","群聊","/raw/rooms"],["money","红包转账","/raw/money"],["fmessage","好友申请","/raw/fmessage"],
  ["gallery","图片","/raw/gallery"],["voices","语音","/raw/voices"],["videos","视频","/raw/videos"],
  ["playhist","播放历史","/raw/playhist"],["orphans","孤儿媒体","/raw/orphans"],
+ ["files","文件","/raw/files"],["biztl","推文","/raw/biztl"],
  ["account","账号","/raw/account"]];
 let _rawCur = "home";
 function switchMode(m){
   document.querySelectorAll('#topnav .tnav').forEach(b=>b.classList.toggle('act', b.id==='tab-'+m));
-  const panes = {chat:'app', raw:'rawpane', sms:'smspane', contacts:'contactpane', settings:'settingspane'};
+  const panes = {chat:'app', raw:'rawpane', sms:'smspane', contacts:'contactpane',
+                 search:'searchpane', stats:'statspane', settings:'settingspane'};
   const loaders = {raw:()=>loadRaw('home'), sms:()=>loadPane('smspane','/raw/sms'),
                    contacts:()=>loadPane('contactpane','/raw/phonecontacts'),
+                   search:()=>loadPane('searchpane','/raw/search'),
+                   stats:()=>loadPane('statspane','/raw/stats'),
                    settings:()=>loadPane('settingspane','/raw/settings')};
   for(const k in panes){
     const el=document.getElementById(panes[k]);
@@ -1203,6 +1434,19 @@ function switchMode(m){
     const el=document.getElementById(panes[m]);
     if(el && !el.dataset.loaded){ el.dataset.loaded="1"; loaders[m](); }
   }
+}
+// 全文搜索结果 → 打开会话并定位到该消息
+async function openHit(sid, msgId){
+  switchMode('chat');
+  const mm=document.getElementById('messages');
+  mm.innerHTML='<div class="loading">加载中…</div>';
+  try{
+    const r=await fetch('/session?id='+encodeURIComponent(sid)+'&focus='+msgId);
+    mm.innerHTML=await r.text();
+    document.getElementById('chname').textContent=sid;
+    const f=document.querySelector('[data-mid="'+msgId+'"]');
+    if(f){ f.classList.add('hit-focus'); f.scrollIntoView({block:'center'}); }
+  }catch(e){ mm.innerHTML='<div class="none">加载失败</div>'; }
 }
 async function loadPane(id, url){
   const el=document.getElementById(id);
@@ -1492,12 +1736,13 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/session":
                 sid = (params.get("id") or [""])[0]
                 before = (params.get("before") or [None])[0]
+                focus = (params.get("focus") or [None])[0]
                 limit = int((params.get("limit") or ["10"])[0])
                 s = q1("SELECT name FROM sessions WHERE id=?", (sid,))
                 if s:
                     n = q1("SELECT COUNT(*) c FROM messages WHERE session_id=?", (sid,))["c"]
                     self.send(f'<script>selSess({esc(s["name"])!r},{n});</script>'
-                              + render_messages(sid, before, limit))
+                              + render_messages(sid, before, limit, focus))
                 else:
                     self.send('<script>selSess("",0)</script><div class="none">会话不存在</div>')
                 return
