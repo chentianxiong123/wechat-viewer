@@ -1159,14 +1159,15 @@ let _psw=null;
 function openLb(el){
   if(!el||!el.dataset||!el.dataset.src)return;
   const scope=el.closest('#messages,#raw-body')||document;
-  const imgs=[...scope.querySelectorAll('img[data-src]')].map(i=>i.dataset.src);
-  const idx=Math.max(0, imgs.indexOf(el.dataset.src));
+  // dataSource直传(PhotoSwipe5从{src}读, 不依赖<a>结构), src用绝对URL
+  const imgs=[...scope.querySelectorAll('img[data-src]')].map(i=>i.src);
+  if(!imgs.includes(el.src)) imgs.push(el.src);
+  const idx=Math.max(0, imgs.indexOf(el.src));
   if(_psw) _psw.destroy();
-  _psw=new PhotoSwipeLightbox({
-    gallery: scope,
-    children: 'img[data-src]',
-    pswpModule: PhotoSwipe,
-    initialSlide: idx,
+  _psw=new PhotoSwipe({
+    dataSource: imgs.map(src=>({src})),
+    numItems: imgs.length,
+    index: idx,
     bgOpacity: 0.92,
   });
   _psw.init();
@@ -1178,7 +1179,8 @@ function openLb(el){
 MIME = {".jpg":"image/jpeg",".jpeg":"image/jpeg",".png":"image/png",".gif":"image/gif",
         ".mp4":"video/mp4",".webp":"image/webp",".mp3":"audio/mpeg",".amr":"audio/amr",
         ".silk":"audio/silk",".js":"application/javascript",".html":"text/html",
-        ".mjs":"application/javascript",".wasm":"application/wasm"}
+        ".mjs":"application/javascript",".wasm":"application/wasm",
+        ".css":"text/css; charset=utf-8"}
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -1259,7 +1261,19 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 full = os.path.join(m, rel.replace("/", os.sep))
                 if not os.path.isfile(full):
-                    return self.send("not found", "text/plain", 404)
+                    # media_path与实际文件名不一致的fallback: 微信缩略图可能带hd.hd段
+                    alt = None
+                    d, base = os.path.dirname(full), os.path.basename(full)
+                    if base.endswith(".thumb.jpg"):
+                        stem = base[: -len(".thumb.jpg")]
+                        for cand in (os.path.join(d, stem + "hd.hd.thumb.jpg"),
+                                     os.path.join(d, stem.replace("hd.hd.", "") + ".thumb.jpg")):
+                            if os.path.isfile(cand):
+                                alt = cand
+                                break
+                    if not alt:
+                        return self.send("not found", "text/plain", 404)
+                    full = alt
                 size = os.path.getsize(full)
                 ctype = MIME.get(os.path.splitext(full)[1].lower(), "")
                 if not ctype:
