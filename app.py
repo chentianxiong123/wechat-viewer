@@ -8,11 +8,33 @@ from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-DATA = r"C:/Users/a1/Documents/HiSuite"
-DB = os.path.join(DATA, "standard.db")
-RAW_DB = os.path.join(DATA, "decrypted_view.db")   # 微信真全库干净视图(重建自decrypted.db, 绕过损坏页)
-MEDIA_DIR = os.path.join(DATA, "wechat_media")
-MEDIA2_DIR = os.path.join(DATA, "media")   # 第二个图片缓存目录
+# ---------- 可配置扫描目录(config.json) ----------
+CONFIG_PATH = os.path.join(BASE, "config.json")
+DEFAULT_CONFIG = {"data_dir": r"C:/Users/a1/Documents/HiSuite",
+                  "sms_dir": r"C:/Users/a1/Documents/HiSuite/ExportSMS",
+                  "contact_dir": r"C:/Users/a1/Documents/HiSuite/ExportContact"}
+CONFIG = {}
+
+def load_config():
+    """加载config.json并重算全局路径; 每个功能扫一个可配置目录"""
+    global CONFIG, DATA, DB, RAW_DB, MEDIA_DIR, MEDIA2_DIR
+    CONFIG = dict(DEFAULT_CONFIG)
+    try:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            CONFIG.update(json.load(f) or {})
+    except Exception:
+        pass
+    DATA = CONFIG.get("data_dir", DEFAULT_CONFIG["data_dir"])
+    DB = os.path.join(DATA, "standard.db")
+    RAW_DB = os.path.join(DATA, "decrypted_view.db")
+    MEDIA_DIR = os.path.join(DATA, "wechat_media")
+    MEDIA2_DIR = os.path.join(DATA, "media")
+    if not CONFIG.get("sms_dir"):
+        CONFIG["sms_dir"] = os.path.join(DATA, "ExportSMS")
+    if not CONFIG.get("contact_dir"):
+        CONFIG["contact_dir"] = os.path.join(DATA, "ExportContact")
+
+load_config()
 PORT = 8001
 
 
@@ -748,6 +770,145 @@ def render_orphans(page=1, cat="all"):
     return "".join(out)
 
 
+# ---- 短信浏览器(可配置扫描 ExportSMS) ----
+def _find_sms_csv():
+    d = CONFIG.get("sms_dir", "")
+    if not d or not os.path.isdir(d):
+        return None
+    fs = [f for f in os.listdir(d) if f.lower().endswith(".csv")]
+    if not fs:
+        return None
+    return os.path.join(d, sorted(fs)[-1])
+
+
+def render_sms(page=1, q=""):
+    import csv as _csv
+    limit = 50
+    csvp = _find_sms_csv()
+    if not csvp:
+        return (_raw_head("短信 (无数据)", "ExportSMS 目录无CSV · 在设置里配置短信目录")
+                + '<div class="none">未找到短信CSV, 请到设置页配置短信扫描目录</div>')
+    rows = []
+    try:
+        with open(csvp, encoding="utf-8-sig", errors="replace") as f:
+            rd = _csv.reader(f)
+            next(rd, None)
+            for r in rd:
+                if len(r) >= 5:
+                    rows.append(r)
+    except Exception as e:
+        return _raw_head("短信 (读取失败)", str(e))
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in (r[0] or "").lower() or ql in (r[1] or "").lower()
+                or ql in (r[2] or "").lower()]
+    total = len(rows)
+    page_items = rows[(page - 1) * limit:page * limit]
+    out = [_raw_head(f"短信 ({total})", "ExportSMS · 可配置扫描目录 · 按号码/内容搜索")]
+    out.append('<div class="rawsearch"><input name="q" placeholder="搜索号码/内容..." value="'
+               + esc(q) + '" hx-get="/raw/sms" hx-trigger="input delay:300ms" hx-target="#raw-body" hx-swap="innerHTML"></div>')
+    out.append('<div class="smslist">')
+    for r in page_items:
+        src, num, content, tm = (r[0], r[1], r[2], r[3])
+        out.append(f'<div class="sms"><div class="sms-h"><span class="sms-n">{esc(num or src)}</span>'
+                   f'<span class="sms-t">{esc(tm)}</span></div>'
+                   f'<div class="sms-c">{esc(content)}</div></div>')
+    out.append('</div>')
+    if not page_items:
+        out.append('<div class="none">无短信</div>')
+    out.append(_pager(page, limit, total, "/raw/sms"))
+    return "".join(out)
+
+
+# ---- 手机联系人浏览器(可配置扫描 ExportContact) ----
+def _load_phone_contacts():
+    import csv as _csv
+    d = CONFIG.get("contact_dir", "")
+    if not d or not os.path.isdir(d):
+        return []
+    out = []
+    for fn in os.listdir(d):
+        fp = os.path.join(d, fn)
+        if fn.lower().endswith(".csv"):
+            try:
+                with open(fp, encoding="utf-8-sig", errors="replace") as f:
+                    rd = _csv.reader(f)
+                    next(rd, None)
+                    for r in rd:
+                        if not r:
+                            continue
+                        name = (r[0] or r[1] or "").strip() if len(r) > 1 else (r[0] or "").strip()
+                        phone = r[5].strip() if len(r) > 5 else ""
+                        if phone:
+                            out.append({"name": name, "phone": phone})
+            except Exception:
+                pass
+        elif fn.lower().endswith(".vcf"):
+            try:
+                with open(fp, encoding="utf-8-sig", errors="replace") as f:
+                    cur = {}
+                    for line in f:
+                        line = line.strip()
+                        if line.upper() == "BEGIN:VCARD":
+                            cur = {}
+                        elif line.upper() == "END:VCARD":
+                            if cur.get("phone"):
+                                out.append(cur)
+                        elif line.startswith("FN"):
+                            cur["name"] = line.split(":", 1)[-1].strip()
+                        elif line.startswith("TEL"):
+                            cur["phone"] = line.split(":", 1)[-1].strip()
+            except Exception:
+                pass
+    seen, dedup = set(), []
+    for c in out:
+        if c["phone"] not in seen:
+            seen.add(c["phone"])
+            dedup.append(c)
+    return dedup
+
+
+def render_phonecontacts(page=1, q=""):
+    limit = 60
+    rows = _load_phone_contacts()
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in (r["name"] or "").lower() or ql in r["phone"]]
+    total = len(rows)
+    page_items = rows[(page - 1) * limit:page * limit]
+    out = [_raw_head(f"手机联系人 ({total})", "ExportContact · 可配置扫描目录 · CSV+VCF")]
+    out.append('<div class="rawsearch"><input name="q" placeholder="搜索姓名/号码..." value="'
+               + esc(q) + '" hx-get="/raw/phonecontacts" hx-trigger="input delay:300ms" hx-target="#raw-body" hx-swap="innerHTML"></div>')
+    out.append('<div class="ogrid">')
+    for r in page_items:
+        name = r["name"] or r["phone"]
+        out.append(f'<div class="oitem"><div class="othumb">{(name or "?")[0]}</div>'
+                   f'<div class="oname">{esc(name[:30])}</div><div class="osub">{esc(r["phone"])}</div></div>')
+    out.append('</div>')
+    if not page_items:
+        out.append('<div class="none">无联系人</div>')
+    out.append(_pager(page, limit, total, "/raw/phonecontacts"))
+    return "".join(out)
+
+
+# ---- 设置页(每个功能可配置扫描目录) ----
+def render_settings(saved=False):
+    def inp(label, key, val):
+        return (f'<div class="setrow"><label>{esc(label)}</label>'
+                f'<input name="{key}" value="{esc(val)}" class="setinp"></div>')
+    body = '<div class="settings">'
+    body += inp("微信数据目录 (standard.db/decrypted_view.db/wechat_media/media)", "data_dir", CONFIG.get("data_dir", ""))
+    body += inp("短信目录 (扫ExportSMS的CSV)", "sms_dir", CONFIG.get("sms_dir", ""))
+    body += inp("联系人目录 (扫ExportContact的CSV/VCF)", "contact_dir", CONFIG.get("contact_dir", ""))
+    body += ('<button class="pg" hx-get="/raw/settings?save=1" hx-include="closest .settings" '
+             'hx-target="#raw-body" hx-swap="innerHTML">保存配置</button>')
+    body += '</div>'
+    out = [_raw_head("设置", "每个功能扫描的可配置目录 · config.json")]
+    if saved:
+        out.append('<div class="none" style="color:var(--acc)">✓ 已保存并重载</div>')
+    out.append(body)
+    return "".join(out)
+
 RAW_TABS = [
     ("home", "总览", "/raw/home"),
     ("contacts", "联系人", "/raw/contacts"),
@@ -759,6 +920,9 @@ RAW_TABS = [
     ("voices", "语音", "/raw/voices"),
     ("videos", "视频", "/raw/videos"),
     ("orphans", "孤儿媒体", "/raw/orphans"),
+    ("sms", "短信", "/raw/sms"),
+    ("phonecontacts", "手机联系人", "/raw/phonecontacts"),
+    ("settings", "设置", "/raw/settings"),
     ("account", "账号", "/raw/account"),
 ]
 
@@ -788,6 +952,12 @@ def render_raw(section, page=1, q="", amtype="all"):
         return render_playhist(page)
     if section == "orphans":
         return render_orphans(page, q or "all")
+    if section == "sms":
+        return render_sms(page, q)
+    if section == "phonecontacts":
+        return render_phonecontacts(page, q)
+    if section == "settings":
+        return render_settings(q == "1")
     if section == "account":
         return render_account(page)
     return render_rawhome()
@@ -969,6 +1139,18 @@ video.media{max-height:320px;cursor:default}
 #rawpane .mut{color:var(--mut)}
 #rawpane .bub.v{margin-bottom:6px}
 #rawpane .bub{margin-bottom:6px}
+#rawpane .smslist{background:#fff;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+#rawpane .sms{border-bottom:1px solid #f0f0f0;padding:8px 12px}
+#rawpane .sms:last-child{border-bottom:none}
+#rawpane .sms-h{display:flex;justify-content:space-between;gap:10px;align-items:center}
+#rawpane .sms-n{font-size:13px;font-weight:500}
+#rawpane .sms-t{font-size:11px;color:var(--mut);flex-shrink:0}
+#rawpane .sms-c{font-size:12px;color:#555;margin-top:3px;line-height:1.5;word-break:break-all}
+#rawpane .settings{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px;max-width:560px}
+#rawpane .setrow{margin-bottom:12px}
+#rawpane .setrow label{display:block;font-size:12px;color:#555;margin-bottom:4px}
+#rawpane .setinp{width:100%;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none;box-sizing:border-box}
+#rawpane .setinp:focus{border-color:var(--acc)}
 </style></head>
 <body>
 <nav id="topnav">
@@ -998,7 +1180,9 @@ const RAW_TABS = [
  ["home","总览","/raw/home"],["contacts","联系人","/raw/contacts"],["articles","公众号","/raw/articles"],
  ["rooms","群聊","/raw/rooms"],["money","红包转账","/raw/money"],["fmessage","好友申请","/raw/fmessage"],
  ["gallery","图片","/raw/gallery"],["voices","语音","/raw/voices"],["videos","视频","/raw/videos"],
- ["playhist","播放历史","/raw/playhist"],["orphans","孤儿媒体","/raw/orphans"],["account","账号","/raw/account"]];
+ ["playhist","播放历史","/raw/playhist"],["orphans","孤儿媒体","/raw/orphans"],
+ ["sms","短信","/raw/sms"],["phonecontacts","手机联系人","/raw/phonecontacts"],["settings","设置","/raw/settings"],
+ ["account","账号","/raw/account"]];
 let _rawCur = "home";
 function switchMode(m){
   document.getElementById('tab-chat').classList.toggle('act', m==='chat');
@@ -1264,6 +1448,21 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(render_rawvideos(page))
                 if sec == "playhist":
                     return self.send(render_playhist(page))
+                if sec == "settings":
+                    if (params.get("save") or [""])[0] == "1":
+                        new = {}
+                        for k in ("data_dir", "sms_dir", "contact_dir"):
+                            v = (params.get(k) or [""])[0]
+                            if v:
+                                new[k] = v
+                        try:
+                            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+                                json.dump(new, f, ensure_ascii=False, indent=2)
+                            load_config()
+                            return self.send(render_settings(True))
+                        except Exception as e:
+                            return self.send(render_settings(False) + f'<div class="none">保存失败: {esc(str(e))}</div>')
+                    return self.send(render_settings(False))
                 if sec == "account":
                     return self.send(render_account(page))
                 return self.send(render_raw(sec, page, cat if sec == "orphans" else q_, amtype))

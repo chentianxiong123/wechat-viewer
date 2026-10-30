@@ -4,6 +4,7 @@
 *.db-shm
 media/
 server.log
+config.json
 __pycache__/
 *.py[cod]
 
