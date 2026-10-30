@@ -175,7 +175,7 @@ def render_msg(m, first_of_group):
                 f'<audio hidden preload="none" data-src="{mp}"></audio><span class="vt">{d}</span></div>'
                 if mp else f'<div class="bub">🎤 [语音未解出{d}]</div>')
     elif typ == "video":
-        body = (f'<video class="media plyr" controls playsinline src="{mp}" preload="metadata" '
+        body = (f'<video class="media" controls src="{mp}" preload="metadata" '
                 f'ondblclick="try{{this.requestFullscreen()}}catch(e){{}}" style="cursor:pointer"></video>' if mp
                 else '<div class="bub miss">[视频未解出]</div>')
     elif typ == "emoji":
@@ -589,7 +589,7 @@ def render_rawvideos(page=1):
             # 懒加载: video不设src, 仅data-src; IntersectionObserver滚入视口才加载
             out.append(
                 f'<div class="vitem" data-src="{p}" onclick="vPlay(this)">'
-                f'<video class="plyr" preload="none" data-src="{p}" muted playsinline></video>'
+                f'<video preload="none" data-src="{p}" muted playsinline></video>'
                 f'<span class="vplay">▶</span>'
                 + (f'<span class="vbadge">{sec}</span>' if sec else "")
                 + f'<div class="vmeta">{esc(r["user"] or r["human"] or fn)}</div></div>')
@@ -799,11 +799,6 @@ INDEX = """<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>聊天记录浏览器</title>
-<link rel="stylesheet" href="/static/photoswipe.css">
-<link rel="stylesheet" href="/static/plyr.min.css">
-<script src="/static/photoswipe.umd.min.js"></script>
-<script src="/static/photoswipe-lightbox.umd.min.js"></script>
-<script src="/static/plyr.min.js"></script>
 <script src="/static/htmx.min.js"></script>
 <style>
 :root{--bg:#f5f5f5;--side:#f7f7f7;--bd:#e5e5e5;--mine:#95ec69;--txt:#111;--mut:#999;--acc:#07c160}
@@ -871,6 +866,22 @@ video.media{max-height:320px;cursor:default}
 #ib input.inp{flex:1;height:48px;border:1px solid #e5e5e5;background:#f7f7f7;border-radius:6px;padding:0 16px;font-size:15px;outline:none;color:#999}
 #ib input.inp::placeholder{color:#bbb}
 #ib .send{flex:none;width:90px;height:48px;background:var(--acc);color:#fff;border:none;border-radius:6px;font-size:15px;cursor:not-allowed;opacity:.85}
+#lb{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;z-index:9999;align-items:center;justify-content:center;user-select:none}
+#lb.open{display:flex}
+#lb .lb-stage{position:absolute;inset:0;overflow:hidden;display:flex;align-items:center;justify-content:center}
+#lb img.lb-img{max-width:none;max-height:none;transition:transform .18s ease;cursor:grab;box-shadow:0 8px 40px rgba(0,0,0,.5)}
+#lb img.lb-img:active{cursor:grabbing}
+#lb .lb-nav{position:absolute;top:0;bottom:0;width:72px;background:transparent;border:none;color:#fff;font-size:52px;cursor:pointer;opacity:.35;display:flex;align-items:center;justify-content:center;transition:opacity .15s;z-index:2}
+#lb .lb-nav:hover{opacity:.9;background:rgba(255,255,255,.06)}
+#lb .lb-prev{left:0}
+#lb .lb-next{right:0}
+#lb .lb-top{position:absolute;top:0;left:0;right:0;height:52px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;color:#ddd;font-size:14px;z-index:3;background:linear-gradient(rgba(0,0,0,.55),transparent)}
+#lb .lb-count{letter-spacing:.5px}
+#lb .lb-close{background:none;border:none;color:#fff;font-size:30px;cursor:pointer;line-height:1;padding:6px}
+#lb .lb-close:hover{color:#7ee}
+#lb .lb-bar{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;gap:10px;background:rgba(30,30,30,.8);padding:7px 12px;border-radius:20px;z-index:3}
+#lb .lb-bar button{background:none;border:none;color:#ddd;font-size:15px;cursor:pointer;padding:2px 6px;border-radius:4px}
+#lb .lb-bar button:hover{background:rgba(255,255,255,.15);color:#fff}
 /* ---------- 真全库板块样式 ---------- */
 #topnav{display:flex;background:var(--side);border-bottom:1px solid var(--bd);overflow-x:auto;flex-shrink:0}
 .tnav{padding:10px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--mut);white-space:nowrap;border-bottom:2px solid transparent;flex-shrink:0}
@@ -1037,7 +1048,7 @@ function orphPlay(link, src, type){
   if(p){ p.remove(); return; }  // 再点收起(不影响格子其他内容)
   const d=document.createElement('div'); d.className='orph-player';
   if(type==='video'){
-    d.innerHTML=`<video class="plyr" controls autoplay src="${src}"></video>`;
+    d.innerHTML=`<video controls autoplay src="${src}"></video>`;
   }else if(type==='audio'){
     if(src.toLowerCase().endsWith('.silk') || src.toLowerCase().endsWith('.amr')){
       d.innerHTML=`<div class="bub v"><button class="vbtn">▶</button><audio hidden preload="none" data-src="${src}"></audio><span class="vt">语音</span></div>`;
@@ -1050,22 +1061,13 @@ function orphPlay(link, src, type){
   }
   d.addEventListener('click',e=>e.stopPropagation());  // 播放器内点击不触发收起
   card.appendChild(d);
-  if(window._plyrInit) window._plyrInit();  // 孤儿视频初始化Plyr
 }
-// Plyr 统一视频播放器(成熟库): 初始化所有有src的.plyr video(含htmx动态加载)
-window._plyrInit=()=>{
-  if(!window.Plyr) return;
-  document.querySelectorAll('video.plyr:not([data-plyred])').forEach(v=>{
-    if(!v.src && !v.dataset.src) return;  // 懒加载未设src先跳过
-    new Plyr(v,{controls:['play-large','play','progress','current-time','duration','mute','volume','fullscreen']});
-    v.dataset.plyred=1;
-  });
-};
 // 视频格子: 点击播放(懒加载后)
 function vPlay(item){
   const v=item.querySelector('video');
   if(!v) return;
-  if(!v.src && item.dataset.src){ v.src=item.dataset.src; if(window._plyrInit) window._plyrInit(); }
+  if(!v.src && item.dataset.src) v.src=item.dataset.src;
+  v.controls=true;
   v.play().catch(()=>{});
 }
 // 视频懒加载: IntersectionObserver 滚入视口才设src(不一次性全加载)
@@ -1073,15 +1075,15 @@ function initVLazy(scope){
   scope=scope||document;
   const items=scope.querySelectorAll('.vitem[data-src]:not([data-vinit])');
   if(!items.length) return;
-  const load=v=>{ if(v&&v.dataset.src&&!v.src){ v.src=v.dataset.src; v.load(); if(window._plyrInit) window._plyrInit(); } };
   if(!('IntersectionObserver' in window)){
-    items.forEach(i=>load(i.querySelector('video')));
+    items.forEach(i=>{const v=i.querySelector('video'); if(v&&i.dataset.src&&!v.src) v.src=i.dataset.src;});
     return;
   }
   const io=new IntersectionObserver(es=>{
     es.forEach(e=>{
       if(e.isIntersecting){
-        load(e.target.querySelector('video'));
+        const v=e.target.querySelector('video');
+        if(v&&e.target.dataset.src&&!v.src){ v.src=e.target.dataset.src; v.load(); }
         io.unobserve(e.target);
       }
     });
@@ -1151,36 +1153,62 @@ document.addEventListener('DOMContentLoaded',()=>{
    }
  }, {passive:true});
  // loadmore 每次加载完后允许再次触发
- document.body.addEventListener('htmx:afterSwap',()=>{setTimeout(()=>{const lm=document.getElementById("loadmore"); if(lm) delete lm.dataset.loading; initVLazy(document.getElementById('raw-body')); window._plyrInit&&window._plyrInit();},600)});
- window._plyrInit&&window._plyrInit();
+ document.body.addEventListener('htmx:afterSwap',()=>{setTimeout(()=>{const lm=document.getElementById("loadmore"); if(lm) delete lm.dataset.loading; initVLazy(document.getElementById('raw-body'));},600)});
 });
-// ---------- PhotoSwipe 图片灯箱(成熟库, 手势缩放/滑动/键盘) ----------
-let _psw=null;
+// ---------- lightbox 图片浏览器 ----------
+const lb = { list:[], idx:0, scale:1, tx:0, ty:0 };
 function openLb(el){
   if(!el||!el.dataset||!el.dataset.src)return;
+  // 复用主功能区灯箱: 收集点击元素所在区域(#messages聊天 或 #raw-body全库)的所有图片
   const scope=el.closest('#messages,#raw-body')||document;
-  // dataSource直传(PhotoSwipe5从{src}读, 不依赖<a>结构), src用绝对URL
-  const imgs=[...scope.querySelectorAll('img[data-src]')].map(i=>i.src);
-  if(!imgs.includes(el.src)) imgs.push(el.src);
-  const idx=Math.max(0, imgs.indexOf(el.src));
-  if(_psw) _psw.destroy();
-  _psw=new PhotoSwipe({
-    dataSource: imgs.map(src=>({src})),
-    numItems: imgs.length,
-    index: idx,
-    bgOpacity: 0.92,
-  });
-  _psw.init();
+  lb.list=[...scope.querySelectorAll('img[data-src]')].map(i=>i.dataset.src);
+  if(!lb.list.includes(el.dataset.src)) lb.list=[el.dataset.src];
+  lb.idx=Math.max(0, lb.list.indexOf(el.dataset.src));
+  lb.scale=1; lb.tx=0; lb.ty=0;
+  renderLb(); document.getElementById('lb').classList.add('open');
+  document.body.style.overflow='hidden';
 }
+function renderLb(){
+  const img=document.getElementById('lb-img'), c=document.getElementById('lb-count');
+  img.src=lb.list[lb.idx]; c.textContent=(lb.idx+1)+' / '+lb.list.length;
+  img.style.transform=`scale(${lb.scale}) translate(${lb.tx}px,${lb.ty}px)`;
+  document.getElementById('lb-prev').style.display=lb.idx>0?'':'none';
+  document.getElementById('lb-next').style.display=lb.idx<lb.list.length-1?'':'none';
+}
+function lbNav(d){ if(lb.idx+d<0||lb.idx+d>=lb.list.length)return; lb.idx+=d; lb.scale=1; lb.tx=0; lb.ty=0; renderLb(); }
+function lbClose(){ document.getElementById('lb').classList.remove('open'); document.body.style.overflow=''; }
+function lbZoom(z, cx, cy){ lb.scale=Math.min(6,Math.max(.2, lb.scale*(z>0?1.25:0.8))); renderLb(); }
+function lbReset(){ lb.scale=1; lb.tx=0; lb.ty=0; renderLb(); }
+// 拖拽平移
+let drag=null;
+function lbDown(e){ const img=e.target; drag={x:e.clientX,y:e.clientY,tx:lb.tx,ty:lb.ty,moved:false}; e.preventDefault(); }
+function lbMove(e){ if(!drag)return; const dx=e.clientX-drag.x, dy=e.clientY-drag.y; if(Math.abs(dx)+Math.abs(dy)>4)drag.moved=true; lb.tx=drag.tx+dx; lb.ty=drag.ty+dy; renderLb(); }
+function lbUp(){ drag=null; }
+document.addEventListener('DOMContentLoaded',()=>{
+  const stage=document.getElementById('lb-stage');
+  stage.addEventListener('mousedown',lbDown); document.addEventListener('mousemove',lbMove); document.addEventListener('mouseup',lbUp);
+  stage.addEventListener('wheel',e=>{ e.preventDefault(); lbZoom(e.deltaY<0?1:-1); },{passive:false});
+  stage.addEventListener('dblclick',e=>{ if(lb.scale>1.01)lbReset(); else lbZoom(1); });
+  document.addEventListener('keydown',e=>{
+    if(!document.getElementById('lb').classList.contains('open'))return;
+    if(e.key==='Escape')lbClose(); else if(e.key==='ArrowLeft')lbNav(-1); else if(e.key==='ArrowRight')lbNav(1);
+  });
+});
 </script>
+<div id="lb">
+ <div class="lb-top"><span class="lb-count" id="lb-count"></span><button class="lb-close" onclick="lbClose()">×</button></div>
+ <button class="lb-nav lb-prev" id="lb-prev" onclick="lbNav(-1)">‹</button>
+ <div class="lb-stage" id="lb-stage"><img class="lb-img" id="lb-img" draggable="false" alt=""></div>
+ <button class="lb-nav lb-next" id="lb-next" onclick="lbNav(1)">›</button>
+ <div class="lb-bar"><button onclick="lbZoom(1)">＋</button><button onclick="lbZoom(-1)">－</button><button onclick="lbReset()">1:1</button></div>
+</div>
 </body></html>"""
 
 # ---------- HTTP ----------
 MIME = {".jpg":"image/jpeg",".jpeg":"image/jpeg",".png":"image/png",".gif":"image/gif",
         ".mp4":"video/mp4",".webp":"image/webp",".mp3":"audio/mpeg",".amr":"audio/amr",
         ".silk":"audio/silk",".js":"application/javascript",".html":"text/html",
-        ".mjs":"application/javascript",".wasm":"application/wasm",
-        ".css":"text/css; charset=utf-8"}
+        ".mjs":"application/javascript",".wasm":"application/wasm"}
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *a):
@@ -1261,19 +1289,7 @@ class Handler(BaseHTTPRequestHandler):
             if m:
                 full = os.path.join(m, rel.replace("/", os.sep))
                 if not os.path.isfile(full):
-                    # media_path与实际文件名不一致的fallback: 微信缩略图可能带hd.hd段
-                    alt = None
-                    d, base = os.path.dirname(full), os.path.basename(full)
-                    if base.endswith(".thumb.jpg"):
-                        stem = base[: -len(".thumb.jpg")]
-                        for cand in (os.path.join(d, stem + "hd.hd.thumb.jpg"),
-                                     os.path.join(d, stem.replace("hd.hd.", "") + ".thumb.jpg")):
-                            if os.path.isfile(cand):
-                                alt = cand
-                                break
-                    if not alt:
-                        return self.send("not found", "text/plain", 404)
-                    full = alt
+                    return self.send("not found", "text/plain", 404)
                 size = os.path.getsize(full)
                 ctype = MIME.get(os.path.splitext(full)[1].lower(), "")
                 if not ctype:
