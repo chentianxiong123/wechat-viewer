@@ -576,7 +576,8 @@ def render_rawvideos(page=1):
     total = rq1("SELECT COUNT(*) c FROM videoinfo2 WHERE filename!=''")["c"]
     rows = rq("SELECT * FROM videoinfo2 WHERE filename!='' ORDER BY createtime DESC LIMIT ? OFFSET ?",
               (limit, (page - 1) * limit))
-    out = [_raw_head(f"视频 ({total})", "videoinfo2 → video/*.mp4 · 时长 videolength")]
+    out = [_raw_head(f"视频 ({total})", "videoinfo2 → video/*.mp4 · 格子懒加载 · 点击播放")]
+    out.append('<div class="vgal">')
     for r in rows:
         fn = r["filename"]
         p = media_path_exact("video", f"{fn}.mp4")
@@ -585,11 +586,16 @@ def render_rawvideos(page=1):
         dur = int(r["videolength"] or 0) / 1000
         sec = f'{int(dur)}″' if dur else ""
         if p:
+            # 懒加载: video不设src, 仅data-src; IntersectionObserver滚入视口才加载
             out.append(
-                f'<div class="mv"><video controls preload="none" src="{p}"></video>'
-                f'<div class="mv-m">{sec} · {esc(r["user"] or r["human"] or "")}</div></div>')
+                f'<div class="vitem" data-src="{p}" onclick="vPlay(this)">'
+                f'<video preload="none" data-src="{p}" muted playsinline></video>'
+                f'<span class="vplay">▶</span>'
+                + (f'<span class="vbadge">{sec}</span>' if sec else "")
+                + f'<div class="vmeta">{esc(r["user"] or r["human"] or fn)}</div></div>')
         else:
-            out.append(f'<div class="mv miss">{fn} {sec} <span class="mut">(文件缺失)</span></div>')
+            out.append(f'<div class="vitem miss">{fn} {sec} <span class="mut">(文件缺失)</span></div>')
+    out.append('</div>')
     if not rows:
         out.append('<div class="none">无</div>')
     out.append(_pager(page, limit, total, "/raw/videos"))
@@ -713,20 +719,30 @@ def render_orphans(page=1, cat="all"):
     page_items = items[(page - 1) * limit:page * limit]
     if not items:
         out.append('<div class="none">无孤儿媒体</div>')
+    out.append('<div class="ogrid">')
     for it in page_items:
-        ic = {"img": "🖼", "video": "🎬", "audio": "🔊", "other": "📄"}.get(it["type"], "📄")
-        # 复用主功能区播放器: 图片灯箱 / 视频原生controls / 语音silk解码 / 音乐audio
+        name = esc(it["name"][:40])
+        size = f'{it["size"]//1024}KB'
         if it["type"] == "img":
-            view = f'<a href="{it["src"]}" onclick="openLb(this);return false" data-src="{it["src"]}">查看</a>'
+            # 图片格子: 缩略图直接显示, 点击灯箱
+            out.append(
+                f'<div class="oitem" onclick="openLb(this.querySelector(\'img\'));return false" data-src="{it["src"]}">'
+                f'<div class="othumb"><img loading="lazy" src="{it["src"]}" data-src="{it["src"]}" alt=""></div>'
+                f'<div class="oname">{name}</div><div class="osub">{size}</div></div>')
         elif it["type"] in ("video", "audio"):
-            view = (f'<a href="javascript:void(0)" '
-                    f'onclick="orphPlay(this,\'{it["src"]}\',\'{it["type"]}\')">查看</a>')
+            # 视频/音频格子: 图标, 点击内联自研播放器
+            ic = "🎬" if it["type"] == "video" else "🔊"
+            out.append(
+                f'<div class="oitem" onclick="orphPlay(this,\'{it["src"]}\',\'{it["type"]}\')">'
+                f'<div class="othumb dark">{ic}</div>'
+                f'<div class="oname">{name}</div><div class="osub">{esc(it["type"])} · {size}</div></div>')
         else:
-            view = f'<a href="{it["src"]}" target="_blank">查看</a>'
-        out.append(f'<div class="ccard"><div class="cav">{ic}</div><div class="cinfo">'
-                   f'<div class="cname">{esc(it["name"][:60])}</div>'
-                   f'<div class="csub">{esc(it["type"])} · {it["size"]//1024}KB</div>'
-                   f'<div class="csig">{view}</div></div></div>')
+            # 其他: 图标, 点击新窗口查看
+            out.append(
+                f'<div class="oitem" onclick="window.open(\'{it["src"]}\')">'
+                f'<div class="othumb dark">📄</div>'
+                f'<div class="oname">{name}</div><div class="osub">{size}</div></div>')
+    out.append('</div>')
     if page_items:
         out.append(_pager(page, limit, len(items), "/raw/orphans?cat=" + cat))
     return "".join(out)
@@ -913,6 +929,22 @@ video.media{max-height:320px;cursor:default}
 #rawpane .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
 #rawpane .gitem{display:block;aspect-ratio:1;background:#eee;border-radius:4px;overflow:hidden}
 #rawpane .gitem img{width:100%;height:100%;object-fit:cover;display:block}
+#rawpane .vgal{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+#rawpane .vitem{position:relative;aspect-ratio:16/9;background:#000;border-radius:6px;overflow:hidden;cursor:pointer}
+#rawpane .vitem video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+#rawpane .vitem .vplay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:38px;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.7);pointer-events:none;transition:opacity .2s}
+#rawpane .vitem:hover .vplay{opacity:.7}
+#rawpane .vitem .vbadge{position:absolute;right:6px;bottom:28px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px}
+#rawpane .vitem .vmeta{position:absolute;left:0;right:0;bottom:0;padding:3px 6px;font-size:11px;color:#ddd;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#rawpane .vitem.miss{display:flex;align-items:center;justify-content:center;color:#999;font-size:12px;background:#f5f5f5}
+#rawpane .ogrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+#rawpane .oitem{background:#fff;border:1px solid var(--bd);border-radius:6px;overflow:hidden;cursor:pointer;transition:box-shadow .15s}
+#rawpane .oitem:hover{box-shadow:0 2px 10px rgba(0,0,0,.12)}
+#rawpane .othumb{aspect-ratio:1;background:#eee;display:flex;align-items:center;justify-content:center;font-size:34px;overflow:hidden}
+#rawpane .othumb img{width:100%;height:100%;object-fit:cover;display:block}
+#rawpane .othumb.dark{background:#2a2a2a;color:#fff}
+#rawpane .oname{font-size:11px;padding:4px 6px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#rawpane .osub{font-size:10px;color:var(--mut);padding:0 6px 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #rawpane .mv{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:10px}
 #rawpane .mv video{width:100%;max-height:260px;border-radius:6px;background:#000}
 #rawpane .mv-m{font-size:12px;color:var(--mut);margin-top:5px}
@@ -1008,11 +1040,12 @@ function pgJump(btn, url, maxPage){
   if(window.htmx) htmx.ajax('GET', url+sep+'page='+p, {target:'#raw-body', swap:'innerHTML'});
   else location.href=url+sep+'page='+p;
 }
-// 孤儿媒体: 内联复用主功能区播放器(视频原生controls / 语音silk解码 / 音乐audio)
+// 孤儿媒体格子: 内联复用主功能区播放器(视频原生controls / 语音silk解码 / 音乐audio)
 function orphPlay(link, src, type){
-  const card=link.closest('.ccard');
+  const card=link.closest('.ccard,.oitem');
+  if(!card) return;
   let p=card.querySelector('.orph-player');
-  if(p){ p.remove(); link.textContent='查看'; return; }  // 再点收起
+  if(p){ p.remove(); return; }  // 再点收起(不影响格子其他内容)
   const d=document.createElement('div'); d.className='orph-player';
   if(type==='video'){
     d.innerHTML=`<video controls autoplay src="${src}"></video>`;
@@ -1021,12 +1054,41 @@ function orphPlay(link, src, type){
       d.innerHTML=`<div class="bub v"><button class="vbtn">▶</button><audio hidden preload="none" data-src="${src}"></audio><span class="vt">语音</span></div>`;
       card.appendChild(d);
       playVoice(d.querySelector('.bub'));
-      link.textContent='收起'; return;
+      d.addEventListener('click',e=>e.stopPropagation());
+      return;
     }
     d.innerHTML=`<audio controls autoplay src="${src}"></audio>`;
   }
+  d.addEventListener('click',e=>e.stopPropagation());  // 播放器内点击不触发收起
   card.appendChild(d);
-  link.textContent='收起';
+}
+// 视频格子: 点击播放(懒加载后)
+function vPlay(item){
+  const v=item.querySelector('video');
+  if(!v) return;
+  if(!v.src && item.dataset.src) v.src=item.dataset.src;
+  v.controls=true;
+  v.play().catch(()=>{});
+}
+// 视频懒加载: IntersectionObserver 滚入视口才设src(不一次性全加载)
+function initVLazy(scope){
+  scope=scope||document;
+  const items=scope.querySelectorAll('.vitem[data-src]:not([data-vinit])');
+  if(!items.length) return;
+  if(!('IntersectionObserver' in window)){
+    items.forEach(i=>{const v=i.querySelector('video'); if(v&&i.dataset.src&&!v.src) v.src=i.dataset.src;});
+    return;
+  }
+  const io=new IntersectionObserver(es=>{
+    es.forEach(e=>{
+      if(e.isIntersecting){
+        const v=e.target.querySelector('video');
+        if(v&&e.target.dataset.src&&!v.src){ v.src=e.target.dataset.src; v.load(); }
+        io.unobserve(e.target);
+      }
+    });
+  },{rootMargin:'300px'});
+  items.forEach(i=>{ i.dataset.vinit=1; io.observe(i); });
 }
 
 console.log('wechat-viewer v5: 语音silk-wasm解码版');
@@ -1091,7 +1153,7 @@ document.addEventListener('DOMContentLoaded',()=>{
    }
  }, {passive:true});
  // loadmore 每次加载完后允许再次触发
- document.body.addEventListener('htmx:afterSwap',()=>{setTimeout(()=>{const lm=document.getElementById("loadmore"); if(lm) delete lm.dataset.loading},600)});
+ document.body.addEventListener('htmx:afterSwap',()=>{setTimeout(()=>{const lm=document.getElementById("loadmore"); if(lm) delete lm.dataset.loading; initVLazy(document.getElementById('raw-body'));},600)});
 });
 // ---------- lightbox 图片浏览器 ----------
 const lb = { list:[], idx:0, scale:1, tx:0, ty:0 };
