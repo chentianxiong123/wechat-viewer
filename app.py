@@ -699,26 +699,23 @@ def render_stats():
     # 时段分布
     hours = rq("SELECT (createTime/1000/3600)%24 h, COUNT(*) n FROM message WHERE createTime>0 GROUP BY h")
 
+    def trow(label, n, title=""):
+        t = f' title="{esc(title)}"' if title else ""
+        return (f'<div class="trow"{t}><span class="tr-l">{esc(label)}</span>'
+                f'<b class="tr-n">{n}</b></div>')
+
     out = [_raw_head(f"聊天统计", f"message {total} 条 · {sess_n} 个会话")]
-    # 类型分布
     out.append('<div class="stats">')
+    # 类型分布
     out.append('<div class="statblock"><div class="sb-t">消息类型分布</div>')
-    mx = max([r["n"] for r in trows] or [1])
     for r in trows:
         tn = TYPE_NAME.get(r["type"], f"类型{r['type']}")
-        w = int(r["n"] * 100 / mx)
-        out.append(f'<div class="hb"><span class="hb-l">{esc(tn)}</span>'
-                   f'<span class="hb-bar"><span class="hb-f" style="width:{w}%"></span></span>'
-                   f'<span class="hb-n">{r["n"]}</span></div>')
+        out.append(trow(tn, r["n"]))
     out.append('</div>')
     # 按月趋势
     out.append('<div class="statblock"><div class="sb-t">按月消息量</div>')
-    mxm = max([r["n"] for r in months] or [1])
     for r in months[-24:]:
-        w = int(r["n"] * 100 / mxm)
-        out.append(f'<div class="hb"><span class="hb-l">{esc(r["ym"])}</span>'
-                   f'<span class="hb-bar"><span class="hb-f" style="width:{w}%"></span></span>'
-                   f'<span class="hb-n">{r["n"]}</span></div>')
+        out.append(trow(r["ym"], r["n"]))
     out.append('</div>')
     # 活跃会话
     out.append('<div class="statblock"><div class="sb-t">活跃会话 TOP10</div>')
@@ -726,22 +723,16 @@ def render_stats():
              for r in rq("SELECT username,nickname,conRemark FROM rcontact")}
     for r in top:
         nm = names.get(r["talker"], r["talker"])
-        w = int(r["n"] * 100 / (top[0]["n"] if top else 1))
-        out.append(f'<div class="hb"><span class="hb-l" title="{esc(r["talker"])}">{esc(nm)}</span>'
-                   f'<span class="hb-bar"><span class="hb-f" style="width:{w}%"></span></span>'
-                   f'<span class="hb-n">{r["n"]}</span></div>')
+        out.append(trow(nm, r["n"], r["talker"]))
     out.append('</div>')
     # 时段分布
     out.append('<div class="statblock"><div class="sb-t">时段分布 (24h)</div>')
     hm = {r["h"]: r["n"] for r in hours}
-    mxh = max(hm.values()) if hm else 1
-    out.append('<div class="hbars">')
+    out.append('<div class="tgrid">')
     for h in range(24):
         n = hm.get(h, 0)
-        ht = int(n * 100 / mxh) if mxh else 0
-        out.append(f'<div class="hbcol" title="{h}时 {n}条">'
-                   f'<span class="hbc-f" style="height:{ht}%"></span>'
-                   f'<span class="hbc-l">{h}</span></div>')
+        out.append(f'<div class="tcell" title="{h}时 {n}条">'
+                   f'<span class="tcell-h">{h}时</span><b class="tcell-n">{n}</b></div>')
     out.append('</div></div>')
     out.append('</div>')
     return "".join(out)
@@ -1355,15 +1346,14 @@ video.media{max-height:320px;cursor:default}
 .rpane .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
 .rpane .statblock{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px}
 .rpane .sb-t{font-size:13px;font-weight:bold;margin-bottom:10px}
-.rpane .hb{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px}
-.rpane .hb-l{width:110px;text-align:right;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
-.rpane .hb-bar{flex:1;height:14px;background:#f0f0f0;border-radius:3px;overflow:hidden}
-.rpane .hb-f{display:block;height:100%;background:var(--acc);border-radius:3px;min-width:2px}
-.rpane .hb-n{width:60px;color:var(--mut);flex-shrink:0}
-.rpane .hbars{display:flex;align-items:flex-end;gap:3px;height:120px;padding-top:8px}
-.rpane .hbcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
-.rpane .hbc-f{width:100%;background:var(--acc);border-radius:2px 2px 0 0;min-height:2px}
-.rpane .hbc-l{font-size:9px;color:var(--mut);margin-top:3px}
+.rpane .trow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #f5f5f5;font-size:12px}
+.rpane .trow:last-child{border-bottom:none}
+.rpane .tr-l{color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rpane .tr-n{color:var(--txt);flex-shrink:0}
+.rpane .tgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.rpane .tcell{display:flex;justify-content:space-between;align-items:center;background:#f7f7f7;border-radius:4px;padding:4px 8px;font-size:11px}
+.rpane .tcell-h{color:var(--mut)}
+.rpane .tcell-n{color:var(--txt)}
 /* 全文搜索结果 */
 .rpane .hit{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:box-shadow .15s}
 .rpane .hit:hover{box-shadow:0 2px 10px rgba(0,0,0,.12)}
