@@ -1373,7 +1373,7 @@ video.media{max-height:320px;cursor:default}
 .rpane .hit-c{font-size:12px;color:#555;margin-top:3px;line-height:1.5;word-break:break-all}
 .rpane .hit-c mark{background:#fff3a0;border-radius:2px;padding:0 2px}
 .rpane .btl-img{width:120px;height:80px;object-fit:cover;border-radius:4px;margin-top:8px;background:#eee}
-.msg.hit-focus{background:#fffbe6;border-radius:8px;outline:2px solid #ffe58f}
+
 </style></head>
 <body>
 <nav id="topnav">
@@ -1445,7 +1445,7 @@ async function openHit(sid, msgId){
     mm.innerHTML=await r.text();
     document.getElementById('chname').textContent=sid;
     const f=document.querySelector('[data-mid="'+msgId+'"]');
-    if(f){ f.classList.add('hit-focus'); f.scrollIntoView({block:'center'}); }
+    if(f){ f.scrollIntoView({block:'center'}); }
   }catch(e){ mm.innerHTML='<div class="none">加载失败</div>'; }
 }
 async function loadPane(id, url){
