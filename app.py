@@ -321,20 +321,43 @@ def urlencode_q(q):
     return quote(q or "")
 
 
-# ---- 公众号文章 ----
-def render_articles(page=1, q_=""):
+# ---- 应用消息(公众号/视频/音乐/文件/红包等) ----
+AM_TYPE = {5: "小程序", 3: "音乐", 33: "链接", 4: "视频", 2001: "红包", 19: "聊天记录",
+           1: "链接", 6: "文件", 2000: "转账", 8: "其他", 36: "其他", 2: "其他",
+           24: "其他", 7: "其他", 54: "其他", 17: "其他", 57: "其他", 51: "其他"}
+AM_GROUPS = [("all", "全部"), ("5", "小程序"), ("3", "音乐"), ("4", "视频"), ("33", "链接"),
+             ("6", "文件"), ("2001", "红包"), ("2000", "转账"), ("19", "聊天记录"), ("other", "其他")]
+
+def render_articles(page=1, q_="", amtype="all"):
     limit = 30
-    where = "WHERE (a.title LIKE ? OR a.source LIKE ? OR a.description LIKE ?)" if q_ else ""
-    args = (f"%{q_}%",) * 3 if q_ else ()
+    conds, args = [], []
+    if q_:
+        conds.append("(a.title LIKE ? OR a.source LIKE ? OR a.description LIKE ?)")
+        args += (f"%{q_}%",) * 3
+    if amtype != "all":
+        if amtype == "other":
+            conds.append("a.type NOT IN (5,3,4,33,6,2001,2000,19,1)")
+        else:
+            conds.append("a.type=?")
+            args.append(int(amtype))
+    where = ("WHERE " + " AND ".join(conds)) if conds else ""
     total = rq1(f"SELECT COUNT(*) c FROM AppMessage a {where}", args)["c"]
     rows = rq(f"SELECT a.msgId,a.title,a.description,a.source,a.type,a.xml,"
               f"m.talker,m.createTime FROM AppMessage a LEFT JOIN message m ON m.msgId=a.msgId "
               f"{where} ORDER BY COALESCE(m.createTime,0) DESC LIMIT ? OFFSET ?",
-              args + (limit, (page - 1) * limit))
-    out = [_raw_head(f"公众号 / 应用消息 ({total})", "AppMessage · 可 join message 989 条含时间/发送者")]
+              tuple(args) + (limit, (page - 1) * limit))
+    # 类型筛选标签
+    tabs = ['<div class="arttabs">']
+    for gid, glabel in AM_GROUPS:
+        act = ' class="act"' if gid == amtype else ""
+        tabs.append(f'<button{act} hx-get="/raw/articles?amtype={gid}' +
+                    (f'&q={urlencode_q(q_)}' if q_ else '') +
+                    f'" hx-target="#raw-body" hx-swap="innerHTML">{glabel}</button>')
+    tabs.append('</div>')
+    out = [_raw_head(f"应用消息 ({total})", "AppMessage 微信应用消息卡片 · 公众号/视频/音乐/文件/红包等")]
+    out += tabs
     for r in rows:
         title = r["title"] or ""
-        # 从 xml 提标题/描述/链接
         xml = r["xml"] or ""
         if not title:
             m = re.search(r"<title>(.*?)</title>", xml, re.S)
@@ -346,7 +369,7 @@ def render_articles(page=1, q_=""):
         src = r["source"] or ""
         t = r["talker"] or ""
         ts = fmt_time(r["createTime"]) if r["createTime"] else ""
-        tn = TYPE_NAME.get(r["type"], f"类型{r['type']}")
+        tn = AM_TYPE.get(r["type"], f"类型{r['type']}")
         meta = tn
         if src:
             meta += " · " + src
@@ -359,7 +382,7 @@ def render_articles(page=1, q_=""):
                    + '<div class="art-m"><span class="badge">' + tn + '</span>' + esc(meta) + '</div></div>')
     if not rows:
         out.append('<div class="none">无匹配</div>')
-    out.append(_pager(page, limit, total, "/raw/articles?q=" + urlencode_q(q_)))
+    out.append(_pager(page, limit, total, "/raw/articles?amtype=" + amtype + ("&q=" + urlencode_q(q_) if q_ else "")))
     return "".join(out)
 
 
@@ -592,7 +615,7 @@ RAW_TABS = [
 ]
 
 
-def render_raw(section, page=1, q=""):
+def render_raw(section, page=1, q="", amtype="all"):
     try:
         page = max(1, int(page))
     except Exception:
@@ -600,7 +623,7 @@ def render_raw(section, page=1, q=""):
     if section == "contacts":
         return render_contacts(page, q)
     if section == "articles":
-        return render_articles(page, q)
+        return render_articles(page, q, amtype)
     if section == "rooms":
         return render_rooms(page, q)
     if section == "money":
@@ -731,6 +754,10 @@ video.media{max-height:320px;cursor:default}
 #rawpane .csig{font-size:12px;color:#666;margin-top:3px}
 #rawpane .badge{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:normal;margin-left:4px;vertical-align:middle}
 #rawpane .art{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px}
+#rawpane .arttabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+#rawpane .arttabs button{background:#fff;border:1px solid var(--bd);border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--txt)}
+#rawpane .arttabs button.act{background:var(--acc);border-color:var(--acc);color:#fff}
+#rawpane .arttabs button:hover{border-color:var(--acc)}
 #rawpane .art-t{font-size:14px;font-weight:500;line-height:1.4}
 #rawpane .art-d{font-size:12px;color:#666;margin-top:4px;line-height:1.5}
 #rawpane .art-m{font-size:11px;color:var(--mut);margin-top:6px}
@@ -983,6 +1010,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(render_rawhome())
                 page = max(1, int((params.get("page") or ["1"])[0]))
                 q_ = (params.get("q") or [""])[0]
+                amtype = (params.get("amtype") or ["all"])[0]
                 if sec == "money":
                     kind = (params.get("kind") or ["all"])[0]
                     return self.send(render_money(page, kind))
@@ -998,7 +1026,7 @@ class Handler(BaseHTTPRequestHandler):
                     return self.send(render_playhist(page))
                 if sec == "account":
                     return self.send(render_account(page))
-                return self.send(render_raw(sec, page, q_))
+                return self.send(render_raw(sec, page, q_, amtype))
             if path == "/sessions":
                 return self.send(render_sessions((params.get("q") or [""])[0]))
             if path == "/session":
