@@ -638,7 +638,8 @@ def _orphan_type(fp):
         return "img"
     if head[4:8] == b"ftyp":
         return "video"
-    if head[:4] == b"RIFF" or head[:3] == b"#!":
+    # 微信语音: .amr 实为 silk 编码(头 \x02#!SILK_V3 或 #!SILK)
+    if head[:4] == b"RIFF" or b"#!SILK" in head[:8] or head[:3] == b"#!":
         return "audio"
     return "other"
 
@@ -714,9 +715,12 @@ def render_orphans(page=1, cat="all"):
         out.append('<div class="none">无孤儿媒体</div>')
     for it in page_items:
         ic = {"img": "🖼", "video": "🎬", "audio": "🔊", "other": "📄"}.get(it["type"], "📄")
-        # 图片孤儿复用主功能区灯箱, 视频/音频/其他保持浏览器原生播放/查看
+        # 复用主功能区播放器: 图片灯箱 / 视频原生controls / 语音silk解码 / 音乐audio
         if it["type"] == "img":
             view = f'<a href="{it["src"]}" onclick="openLb(this);return false" data-src="{it["src"]}">查看</a>'
+        elif it["type"] in ("video", "audio"):
+            view = (f'<a href="javascript:void(0)" '
+                    f'onclick="orphPlay(this,\'{it["src"]}\',\'{it["type"]}\')">查看</a>')
         else:
             view = f'<a href="{it["src"]}" target="_blank">查看</a>'
         out.append(f'<div class="ccard"><div class="cav">{ic}</div><div class="cinfo">'
@@ -881,6 +885,10 @@ video.media{max-height:320px;cursor:default}
 #rawpane .cinfo{min-width:0;flex:1}
 #rawpane .cname{font-size:14px;font-weight:500}
 #rawpane .csub{font-size:11px;color:var(--mut);margin-top:1px;word-break:break-all}
+#rawpane .orph-player{margin-top:8px;width:100%}
+#rawpane .orph-player video{width:100%;max-height:240px;border-radius:6px;background:#000}
+#rawpane .orph-player audio{width:100%;border-radius:6px}
+#rawpane .orph-player .bub.v{margin:0;background:#f0f0f0}
 #rawpane .csig{font-size:12px;color:#666;margin-top:3px}
 #rawpane .badge{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:normal;margin-left:4px;vertical-align:middle}
 #rawpane .art{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px}
@@ -999,6 +1007,26 @@ function pgJump(btn, url, maxPage){
   const sep=url.includes('?')?'&':'?';
   if(window.htmx) htmx.ajax('GET', url+sep+'page='+p, {target:'#raw-body', swap:'innerHTML'});
   else location.href=url+sep+'page='+p;
+}
+// 孤儿媒体: 内联复用主功能区播放器(视频原生controls / 语音silk解码 / 音乐audio)
+function orphPlay(link, src, type){
+  const card=link.closest('.ccard');
+  let p=card.querySelector('.orph-player');
+  if(p){ p.remove(); link.textContent='查看'; return; }  // 再点收起
+  const d=document.createElement('div'); d.className='orph-player';
+  if(type==='video'){
+    d.innerHTML=`<video controls autoplay src="${src}"></video>`;
+  }else if(type==='audio'){
+    if(src.toLowerCase().endsWith('.silk') || src.toLowerCase().endsWith('.amr')){
+      d.innerHTML=`<div class="bub v"><button class="vbtn">▶</button><audio hidden preload="none" data-src="${src}"></audio><span class="vt">语音</span></div>`;
+      card.appendChild(d);
+      playVoice(d.querySelector('.bub'));
+      link.textContent='收起'; return;
+    }
+    d.innerHTML=`<audio controls autoplay src="${src}"></audio>`;
+  }
+  card.appendChild(d);
+  link.textContent='收起';
 }
 
 console.log('wechat-viewer v5: 语音silk-wasm解码版');
