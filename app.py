@@ -699,40 +699,47 @@ def render_stats():
     # 时段分布
     hours = rq("SELECT (createTime/1000/3600)%24 h, COUNT(*) n FROM message WHERE createTime>0 GROUP BY h")
 
-    def trow(label, n, title=""):
+    def prow(label, n, pct, title=""):
         t = f' title="{esc(title)}"' if title else ""
-        return (f'<div class="trow"{t}><span class="tr-l">{esc(label)}</span>'
-                f'<b class="tr-n">{n}</b></div>')
+        return (f'<div class="hbar"{t}><span class="hb-l">{esc(label)}</span>'
+                f'<span class="hbar-f" style="width:{pct}%"></span>'
+                f'<b class="hb-n">{n}</b></div>')
 
     out = [_raw_head(f"聊天统计", f"message {total} 条 · {sess_n} 个会话")]
     out.append('<div class="stats">')
     # 类型分布
     out.append('<div class="statblock"><div class="sb-t">消息类型分布</div>')
+    mx = max([r["n"] for r in trows] or [1])
     for r in trows:
         tn = TYPE_NAME.get(r["type"], f"类型{r['type']}")
-        out.append(trow(tn, r["n"]))
+        out.append(prow(tn, r["n"], int(r["n"] * 100 / mx)))
     out.append('</div>')
     # 按月趋势
     out.append('<div class="statblock"><div class="sb-t">按月消息量</div>')
+    mxm = max([r["n"] for r in months[-24:]] or [1])
     for r in months[-24:]:
-        out.append(trow(r["ym"], r["n"]))
+        out.append(prow(r["ym"], r["n"], int(r["n"] * 100 / mxm)))
     out.append('</div>')
     # 活跃会话
     out.append('<div class="statblock"><div class="sb-t">活跃会话 TOP10</div>')
     names = {r["username"]: (r["conRemark"] or r["nickname"] or r["username"])
              for r in rq("SELECT username,nickname,conRemark FROM rcontact")}
+    topn = top[0]["n"] if top else 1
     for r in top:
         nm = names.get(r["talker"], r["talker"])
-        out.append(trow(nm, r["n"], r["talker"]))
+        out.append(prow(nm, r["n"], int(r["n"] * 100 / topn), r["talker"]))
     out.append('</div>')
     # 时段分布
     out.append('<div class="statblock"><div class="sb-t">时段分布 (24h)</div>')
     hm = {r["h"]: r["n"] for r in hours}
-    out.append('<div class="tgrid">')
+    mxh = max(hm.values()) if hm else 1
+    out.append('<div class="hbars">')
     for h in range(24):
         n = hm.get(h, 0)
-        out.append(f'<div class="tcell" title="{h}时 {n}条">'
-                   f'<span class="tcell-h">{h}时</span><b class="tcell-n">{n}</b></div>')
+        ht = int(n * 100 / mxh) if mxh else 0
+        out.append(f'<div class="hbcol" title="{h}时 {n}条">'
+                   f'<span class="hbc-f" style="height:{ht}%"></span>'
+                   f'<span class="hbc-l">{h}</span></div>')
     out.append('</div></div>')
     out.append('</div>')
     return "".join(out)
@@ -1346,14 +1353,14 @@ video.media{max-height:320px;cursor:default}
 .rpane .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:12px}
 .rpane .statblock{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px}
 .rpane .sb-t{font-size:13px;font-weight:bold;margin-bottom:10px}
-.rpane .trow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid #f5f5f5;font-size:12px}
-.rpane .trow:last-child{border-bottom:none}
-.rpane .tr-l{color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rpane .tr-n{color:var(--txt);flex-shrink:0}
-.rpane .tgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
-.rpane .tcell{display:flex;justify-content:space-between;align-items:center;background:#f7f7f7;border-radius:4px;padding:4px 8px;font-size:11px}
-.rpane .tcell-h{color:var(--mut)}
-.rpane .tcell-n{color:var(--txt)}
+.rpane .hbar{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px}
+.rpane .hb-l{width:110px;text-align:right;color:#555;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0}
+.rpane .hbar-f{flex:1;height:12px;background:var(--acc);border-radius:6px;min-width:3px}
+.rpane .hb-n{width:56px;color:var(--txt);flex-shrink:0;text-align:right}
+.rpane .hbars{display:flex;align-items:flex-end;gap:3px;height:110px;padding-top:8px}
+.rpane .hbcol{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.rpane .hbc-f{width:100%;background:var(--acc);border-radius:2px 2px 0 0;min-height:2px}
+.rpane .hbc-l{font-size:9px;color:var(--mut);margin-top:3px}
 /* 全文搜索结果 */
 .rpane .hit{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:box-shadow .15s}
 .rpane .hit:hover{box-shadow:0 2px 10px rgba(0,0,0,.12)}
