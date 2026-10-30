@@ -5,7 +5,7 @@
 """
 import os, re, sqlite3, html, json
 from http.server import HTTPServer, BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse, parse_qs, quote
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 # ---------- 可配置扫描目录(config.json) ----------
@@ -293,7 +293,7 @@ TYPE_NAME = {1: "文本", 3: "图片", 34: "语音", 43: "视频", 47: "表情",
              318767153: "小程序", 570425393: "拍一拍", 1048625: "撤回", 50: "聊天记录"}
 
 
-def _pager(page, limit, total, url):
+def _pager(page, limit, total, url, target="#raw-body"):
     total_pages = max(1, (total + limit - 1) // limit)
     if total_pages <= 1:
         return ""
@@ -304,7 +304,7 @@ def _pager(page, limit, total, url):
         if dis:
             return f'<button class="{cls}" disabled>{label or p}</button>'
         return (f'<button class="{cls}" hx-get="{url}{sep}page={p}" '
-                f'hx-target="#raw-body" hx-swap="innerHTML">{label or p}</button>')
+                f'hx-target="{target}" hx-swap="innerHTML">{label or p}</button>')
 
     # 页码窗口: 1 2 ... p-1 p p+1 ... N-1 N
     win = sorted({x for x in (1, 2, page - 1, page, page + 1, total_pages - 1, total_pages)
@@ -781,7 +781,7 @@ def _find_sms_csv():
     return os.path.join(d, sorted(fs)[-1])
 
 
-def render_sms(page=1, q=""):
+def render_sms(page=1, q="", target="#smspane"):
     import csv as _csv
     limit = 50
     csvp = _find_sms_csv()
@@ -806,7 +806,7 @@ def render_sms(page=1, q=""):
     page_items = rows[(page - 1) * limit:page * limit]
     out = [_raw_head(f"短信 ({total})", "ExportSMS · 可配置扫描目录 · 按号码/内容搜索")]
     out.append('<div class="rawsearch"><input name="q" placeholder="搜索号码/内容..." value="'
-               + esc(q) + '" hx-get="/raw/sms" hx-trigger="input delay:300ms" hx-target="#raw-body" hx-swap="innerHTML"></div>')
+               + esc(q) + '" hx-get="/raw/sms" hx-trigger="input delay:300ms" hx-target="' + target + '" hx-swap="innerHTML"></div>')
     out.append('<div class="smslist">')
     for r in page_items:
         src, num, content, tm = (r[0], r[1], r[2], r[3])
@@ -816,7 +816,7 @@ def render_sms(page=1, q=""):
     out.append('</div>')
     if not page_items:
         out.append('<div class="none">无短信</div>')
-    out.append(_pager(page, limit, total, "/raw/sms"))
+    out.append(_pager(page, limit, total, "/raw/sms" + ("?q=" + quote(q) if q else ""), target))
     return "".join(out)
 
 
@@ -868,7 +868,7 @@ def _load_phone_contacts():
     return dedup
 
 
-def render_phonecontacts(page=1, q=""):
+def render_phonecontacts(page=1, q="", target="#contactpane"):
     limit = 60
     rows = _load_phone_contacts()
     if q:
@@ -878,7 +878,7 @@ def render_phonecontacts(page=1, q=""):
     page_items = rows[(page - 1) * limit:page * limit]
     out = [_raw_head(f"手机联系人 ({total})", "ExportContact · 可配置扫描目录 · CSV+VCF")]
     out.append('<div class="rawsearch"><input name="q" placeholder="搜索姓名/号码..." value="'
-               + esc(q) + '" hx-get="/raw/phonecontacts" hx-trigger="input delay:300ms" hx-target="#raw-body" hx-swap="innerHTML"></div>')
+               + esc(q) + '" hx-get="/raw/phonecontacts" hx-trigger="input delay:300ms" hx-target="' + target + '" hx-swap="innerHTML"></div>')
     out.append('<div class="ogrid">')
     for r in page_items:
         name = r["name"] or r["phone"]
@@ -887,12 +887,12 @@ def render_phonecontacts(page=1, q=""):
     out.append('</div>')
     if not page_items:
         out.append('<div class="none">无联系人</div>')
-    out.append(_pager(page, limit, total, "/raw/phonecontacts"))
+    out.append(_pager(page, limit, total, "/raw/phonecontacts" + ("?q=" + quote(q) if q else ""), target))
     return "".join(out)
 
 
 # ---- 设置页(每个功能可配置扫描目录) ----
-def render_settings(saved=False):
+def render_settings(saved=False, target="#settingspane"):
     def inp(label, key, val):
         return (f'<div class="setrow"><label>{esc(label)}</label>'
                 f'<input name="{key}" value="{esc(val)}" class="setinp"></div>')
@@ -901,7 +901,7 @@ def render_settings(saved=False):
     body += inp("短信目录 (扫ExportSMS的CSV)", "sms_dir", CONFIG.get("sms_dir", ""))
     body += inp("联系人目录 (扫ExportContact的CSV/VCF)", "contact_dir", CONFIG.get("contact_dir", ""))
     body += ('<button class="pg" hx-get="/raw/settings?save=1" hx-include="closest .settings" '
-             'hx-target="#raw-body" hx-swap="innerHTML">保存配置</button>')
+             'hx-target="' + target + '" hx-swap="innerHTML">保存配置</button>')
     body += '</div>'
     out = [_raw_head("设置", "每个功能扫描的可配置目录 · config.json")]
     if saved:
@@ -1057,105 +1057,108 @@ video.media{max-height:320px;cursor:default}
 .tnav{padding:10px 14px;border:none;background:none;cursor:pointer;font-size:13px;color:var(--mut);white-space:nowrap;border-bottom:2px solid transparent;flex-shrink:0}
 .tnav:hover{color:var(--txt)}
 .tnav.act{color:var(--acc);border-bottom-color:var(--acc);font-weight:bold}
-#rawpane{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 40px}
-#rawpane .rawhead{margin-bottom:14px}
-#rawpane .rawtitle{font-size:16px;font-weight:bold;color:var(--txt)}
-#rawpane .rawsub{font-size:12px;color:var(--mut);margin-top:2px}
-#rawpane .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
-#rawpane .stat{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px}
-#rawpane .stat-n{font-size:24px;font-weight:bold;color:var(--acc)}
-#rawpane .stat-t{font-size:14px;margin-top:2px}
-#rawpane .stat-s{font-size:11px;color:var(--mut)}
-#rawpane .ccard{display:flex;gap:10px;background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px;align-items:flex-start}
-#rawpane .cav{width:36px;height:36px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;flex-shrink:0;font-size:14px}
-#rawpane .cinfo{min-width:0;flex:1}
-#rawpane .cname{font-size:14px;font-weight:500}
-#rawpane .csub{font-size:11px;color:var(--mut);margin-top:1px;word-break:break-all}
-#rawpane .orph-player{margin-top:8px;width:100%}
-#rawpane .orph-player video{width:100%;max-height:240px;border-radius:6px;background:#000}
-#rawpane .orph-player audio{width:100%;border-radius:6px}
-#rawpane .orph-player .bub.v{margin:0;background:#f0f0f0}
-#rawpane .csig{font-size:12px;color:#666;margin-top:3px}
-#rawpane .badge{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:normal;margin-left:4px;vertical-align:middle}
-#rawpane .art{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px}
-#rawpane .arttabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
-#rawpane .arttabs button{background:#fff;border:1px solid var(--bd);border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--txt)}
-#rawpane .arttabs button.act{background:var(--acc);border-color:var(--acc);color:#fff}
-#rawpane .arttabs button:hover{border-color:var(--acc)}
-#rawpane .art-t{font-size:14px;font-weight:500;line-height:1.4}
-#rawpane .art-d{font-size:12px;color:#666;margin-top:4px;line-height:1.5}
-#rawpane .art-m{font-size:11px;color:var(--mut);margin-top:6px}
-#rawpane .room{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px}
-#rawpane .room-n{font-size:14px;font-weight:500}
-#rawpane .room-m{font-size:12px;color:var(--mut);margin-top:3px}
-#rawpane .room-list{font-size:12px;color:#555;margin-top:5px;word-break:break-all}
-#rawpane .room-notice{font-size:12px;color:#888;margin-top:5px;background:#f7f7f7;border-radius:4px;padding:6px 8px}
-#rawpane .mny{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:8px}
-#rawpane .mny-h{font-size:14px}
-#rawpane .mny-h b{color:#e5484d}
-#rawpane .mny-n{font-size:12px;color:#555;margin-left:6px}
-#rawpane .mny-t{font-size:11px;color:var(--mut);float:right}
-#rawpane .mny-d{font-size:12px;color:#666;margin-top:4px}
-#rawpane .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
-#rawpane .gitem{display:block;aspect-ratio:1;background:#eee;border-radius:4px;overflow:hidden}
-#rawpane .gitem img{width:100%;height:100%;object-fit:cover;display:block}
-#rawpane .vgal{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
-#rawpane .vitem{position:relative;aspect-ratio:16/9;background:#000;border-radius:6px;overflow:hidden;cursor:pointer}
-#rawpane .vitem video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
-#rawpane .vitem .vplay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:38px;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.7);pointer-events:none;transition:opacity .2s}
-#rawpane .vitem:hover .vplay{opacity:.7}
-#rawpane .vitem .vbadge{position:absolute;right:6px;bottom:28px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px}
-#rawpane .vitem .vmeta{position:absolute;left:0;right:0;bottom:0;padding:3px 6px;font-size:11px;color:#ddd;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#rawpane .vitem.miss{display:flex;align-items:center;justify-content:center;color:#999;font-size:12px;background:#f5f5f5}
-#rawpane .ogrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
-#rawpane .oitem{background:#fff;border:1px solid var(--bd);border-radius:6px;overflow:hidden;cursor:pointer;transition:box-shadow .15s}
-#rawpane .oitem:hover{box-shadow:0 2px 10px rgba(0,0,0,.12)}
-#rawpane .othumb{aspect-ratio:1;background:#eee;display:flex;align-items:center;justify-content:center;font-size:34px;overflow:hidden}
-#rawpane .othumb img{width:100%;height:100%;object-fit:cover;display:block}
-#rawpane .othumb.dark{background:#2a2a2a;color:#fff}
-#rawpane .oname{font-size:11px;padding:4px 6px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#rawpane .osub{font-size:10px;color:var(--mut);padding:0 6px 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-#rawpane .mv{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:10px}
-#rawpane .mv video{width:100%;max-height:260px;border-radius:6px;background:#000}
-#rawpane .mv-m{font-size:12px;color:var(--mut);margin-top:5px}
-#rawpane .mv.miss{font-size:13px;color:#999;padding:8px}
-#rawpane .tbl{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--bd);border-radius:8px;font-size:12px}
-#rawpane .tbl th,#rawpane .tbl td{text-align:left;padding:6px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top}
-#rawpane .tbl th{background:var(--side);font-weight:500;color:#555;position:sticky;top:0}
-#rawpane .tbl td:first-child{color:var(--mut);word-break:break-all;max-width:45%}
-#rawpane .pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:16px}
-#rawpane .pg{background:#fff;border:1px solid var(--bd);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px}
-#rawpane .pg:hover{border-color:var(--acc);color:var(--acc)}
-#rawpane .pg.act{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:bold}
-#rawpane .pg:disabled{opacity:.4;cursor:default}
-#rawpane .pgd{color:var(--mut);padding:0 2px;font-size:13px}
-#rawpane .pgjump{width:64px;padding:5px 8px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none}
-#rawpane .pgjump:focus{border-color:var(--acc)}
-#rawpane .pgj{padding:6px 10px}
-#rawpane .pgi{font-size:12px;color:var(--mut)}
-#rawpane .rawsearch{margin-bottom:12px;display:flex;gap:8px}
-#rawpane .rawsearch input{flex:1;max-width:320px;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none}
-#rawpane .rawsearch input:focus{border-color:var(--acc)}
-#rawpane .mut{color:var(--mut)}
-#rawpane .bub.v{margin-bottom:6px}
-#rawpane .bub{margin-bottom:6px}
-#rawpane .smslist{background:#fff;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
-#rawpane .sms{border-bottom:1px solid #f0f0f0;padding:8px 12px}
-#rawpane .sms:last-child{border-bottom:none}
-#rawpane .sms-h{display:flex;justify-content:space-between;gap:10px;align-items:center}
-#rawpane .sms-n{font-size:13px;font-weight:500}
-#rawpane .sms-t{font-size:11px;color:var(--mut);flex-shrink:0}
-#rawpane .sms-c{font-size:12px;color:#555;margin-top:3px;line-height:1.5;word-break:break-all}
-#rawpane .settings{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px;max-width:560px}
-#rawpane .setrow{margin-bottom:12px}
-#rawpane .setrow label{display:block;font-size:12px;color:#555;margin-bottom:4px}
-#rawpane .setinp{width:100%;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none;box-sizing:border-box}
-#rawpane .setinp:focus{border-color:var(--acc)}
+.rpane{flex:1;overflow-y:auto;min-height:0;padding:14px 16px 40px}
+.rpane .rawhead{margin-bottom:14px}
+.rpane .rawtitle{font-size:16px;font-weight:bold;color:var(--txt)}
+.rpane .rawsub{font-size:12px;color:var(--mut);margin-top:2px}
+.rpane .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.rpane .stat{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px}
+.rpane .stat-n{font-size:24px;font-weight:bold;color:var(--acc)}
+.rpane .stat-t{font-size:14px;margin-top:2px}
+.rpane .stat-s{font-size:11px;color:var(--mut)}
+.rpane .ccard{display:flex;gap:10px;background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px;align-items:flex-start}
+.rpane .cav{width:36px;height:36px;border-radius:50%;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:bold;flex-shrink:0;font-size:14px}
+.rpane .cinfo{min-width:0;flex:1}
+.rpane .cname{font-size:14px;font-weight:500}
+.rpane .csub{font-size:11px;color:var(--mut);margin-top:1px;word-break:break-all}
+.rpane .orph-player{margin-top:8px;width:100%}
+.rpane .orph-player video{width:100%;max-height:240px;border-radius:6px;background:#000}
+.rpane .orph-player audio{width:100%;border-radius:6px}
+.rpane .orph-player .bub.v{margin:0;background:#f0f0f0}
+.rpane .csig{font-size:12px;color:#666;margin-top:3px}
+.rpane .badge{display:inline-block;background:#e8f5e9;color:#2e7d32;border-radius:3px;padding:1px 5px;font-size:10px;font-weight:normal;margin-left:4px;vertical-align:middle}
+.rpane .art{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px}
+.rpane .arttabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.rpane .arttabs button{background:#fff;border:1px solid var(--bd);border-radius:20px;padding:4px 12px;font-size:12px;cursor:pointer;color:var(--txt)}
+.rpane .arttabs button.act{background:var(--acc);border-color:var(--acc);color:#fff}
+.rpane .arttabs button:hover{border-color:var(--acc)}
+.rpane .art-t{font-size:14px;font-weight:500;line-height:1.4}
+.rpane .art-d{font-size:12px;color:#666;margin-top:4px;line-height:1.5}
+.rpane .art-m{font-size:11px;color:var(--mut);margin-top:6px}
+.rpane .room{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:12px;margin-bottom:10px}
+.rpane .room-n{font-size:14px;font-weight:500}
+.rpane .room-m{font-size:12px;color:var(--mut);margin-top:3px}
+.rpane .room-list{font-size:12px;color:#555;margin-top:5px;word-break:break-all}
+.rpane .room-notice{font-size:12px;color:#888;margin-top:5px;background:#f7f7f7;border-radius:4px;padding:6px 8px}
+.rpane .mny{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px 12px;margin-bottom:8px}
+.rpane .mny-h{font-size:14px}
+.rpane .mny-h b{color:#e5484d}
+.rpane .mny-n{font-size:12px;color:#555;margin-left:6px}
+.rpane .mny-t{font-size:11px;color:var(--mut);float:right}
+.rpane .mny-d{font-size:12px;color:#666;margin-top:4px}
+.rpane .gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:6px}
+.rpane .gitem{display:block;aspect-ratio:1;background:#eee;border-radius:4px;overflow:hidden}
+.rpane .gitem img{width:100%;height:100%;object-fit:cover;display:block}
+.rpane .vgal{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px}
+.rpane .vitem{position:relative;aspect-ratio:16/9;background:#000;border-radius:6px;overflow:hidden;cursor:pointer}
+.rpane .vitem video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+.rpane .vitem .vplay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:38px;color:#fff;text-shadow:0 2px 10px rgba(0,0,0,.7);pointer-events:none;transition:opacity .2s}
+.rpane .vitem:hover .vplay{opacity:.7}
+.rpane .vitem .vbadge{position:absolute;right:6px;bottom:28px;background:rgba(0,0,0,.75);color:#fff;font-size:11px;padding:2px 6px;border-radius:4px}
+.rpane .vitem .vmeta{position:absolute;left:0;right:0;bottom:0;padding:3px 6px;font-size:11px;color:#ddd;background:linear-gradient(transparent,rgba(0,0,0,.7));white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rpane .vitem.miss{display:flex;align-items:center;justify-content:center;color:#999;font-size:12px;background:#f5f5f5}
+.rpane .ogrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
+.rpane .oitem{background:#fff;border:1px solid var(--bd);border-radius:6px;overflow:hidden;cursor:pointer;transition:box-shadow .15s}
+.rpane .oitem:hover{box-shadow:0 2px 10px rgba(0,0,0,.12)}
+.rpane .othumb{aspect-ratio:1;background:#eee;display:flex;align-items:center;justify-content:center;font-size:34px;overflow:hidden}
+.rpane .othumb img{width:100%;height:100%;object-fit:cover;display:block}
+.rpane .othumb.dark{background:#2a2a2a;color:#fff}
+.rpane .oname{font-size:11px;padding:4px 6px 0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rpane .osub{font-size:10px;color:var(--mut);padding:0 6px 5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rpane .mv{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:10px;margin-bottom:10px}
+.rpane .mv video{width:100%;max-height:260px;border-radius:6px;background:#000}
+.rpane .mv-m{font-size:12px;color:var(--mut);margin-top:5px}
+.rpane .mv.miss{font-size:13px;color:#999;padding:8px}
+.rpane .tbl{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--bd);border-radius:8px;font-size:12px}
+.rpane .tbl th,.rpane .tbl td{text-align:left;padding:6px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top}
+.rpane .tbl th{background:var(--side);font-weight:500;color:#555;position:sticky;top:0}
+.rpane .tbl td:first-child{color:var(--mut);word-break:break-all;max-width:45%}
+.rpane .pager{display:flex;gap:10px;align-items:center;justify-content:center;margin-top:16px}
+.rpane .pg{background:#fff;border:1px solid var(--bd);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:13px}
+.rpane .pg:hover{border-color:var(--acc);color:var(--acc)}
+.rpane .pg.act{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:bold}
+.rpane .pg:disabled{opacity:.4;cursor:default}
+.rpane .pgd{color:var(--mut);padding:0 2px;font-size:13px}
+.rpane .pgjump{width:64px;padding:5px 8px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none}
+.rpane .pgjump:focus{border-color:var(--acc)}
+.rpane .pgj{padding:6px 10px}
+.rpane .pgi{font-size:12px;color:var(--mut)}
+.rpane .rawsearch{margin-bottom:12px;display:flex;gap:8px}
+.rpane .rawsearch input{flex:1;max-width:320px;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none}
+.rpane .rawsearch input:focus{border-color:var(--acc)}
+.rpane .mut{color:var(--mut)}
+.rpane .bub.v{margin-bottom:6px}
+.rpane .bub{margin-bottom:6px}
+.rpane .smslist{background:#fff;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+.rpane .sms{border-bottom:1px solid #f0f0f0;padding:8px 12px}
+.rpane .sms:last-child{border-bottom:none}
+.rpane .sms-h{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.rpane .sms-n{font-size:13px;font-weight:500}
+.rpane .sms-t{font-size:11px;color:var(--mut);flex-shrink:0}
+.rpane .sms-c{font-size:12px;color:#555;margin-top:3px;line-height:1.5;word-break:break-all}
+.rpane .settings{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px;max-width:560px}
+.rpane .setrow{margin-bottom:12px}
+.rpane .setrow label{display:block;font-size:12px;color:#555;margin-bottom:4px}
+.rpane .setinp{width:100%;padding:8px 12px;border:1px solid var(--bd);border-radius:6px;font-size:13px;outline:none;box-sizing:border-box}
+.rpane .setinp:focus{border-color:var(--acc)}
 </style></head>
 <body>
 <nav id="topnav">
  <button class="tnav act" id="tab-chat" onclick="switchMode('chat')">💬 聊天</button>
  <button class="tnav" id="tab-raw" onclick="switchMode('raw')">📚 全库</button>
+ <button class="tnav" id="tab-sms" onclick="switchMode('sms')">✉️ 短信</button>
+ <button class="tnav" id="tab-contacts" onclick="switchMode('contacts')">👥 联系人</button>
+ <button class="tnav" id="tab-settings" onclick="switchMode('settings')">⚙️ 设置</button>
 </nav>
 <div id="app">
 <aside id="sb">
@@ -1174,25 +1177,41 @@ video.media{max-height:320px;cursor:default}
 </div>
 </main>
 </div>
-<div id="rawpane" style="display:none"></div>
+<div id="rawpane" class="rpane" style="display:none"></div>
+<div id="smspane" class="rpane" style="display:none"></div>
+<div id="contactpane" class="rpane" style="display:none"></div>
+<div id="settingspane" class="rpane" style="display:none"></div>
 <script>
 const RAW_TABS = [
  ["home","总览","/raw/home"],["contacts","联系人","/raw/contacts"],["articles","公众号","/raw/articles"],
  ["rooms","群聊","/raw/rooms"],["money","红包转账","/raw/money"],["fmessage","好友申请","/raw/fmessage"],
  ["gallery","图片","/raw/gallery"],["voices","语音","/raw/voices"],["videos","视频","/raw/videos"],
  ["playhist","播放历史","/raw/playhist"],["orphans","孤儿媒体","/raw/orphans"],
- ["sms","短信","/raw/sms"],["phonecontacts","手机联系人","/raw/phonecontacts"],["settings","设置","/raw/settings"],
  ["account","账号","/raw/account"]];
 let _rawCur = "home";
 function switchMode(m){
-  document.getElementById('tab-chat').classList.toggle('act', m==='chat');
-  document.getElementById('tab-raw').classList.toggle('act', m==='raw');
-  document.getElementById('app').style.display = m==='chat' ? 'flex' : 'none';
-  document.getElementById('rawpane').style.display = m==='raw' ? 'block' : 'none';
-  if(m==='raw' && !document.getElementById('rawpane').dataset.loaded){
-    document.getElementById('rawpane').dataset.loaded = "1";
-    loadRaw('home');
+  document.querySelectorAll('#topnav .tnav').forEach(b=>b.classList.toggle('act', b.id==='tab-'+m));
+  const panes = {chat:'app', raw:'rawpane', sms:'smspane', contacts:'contactpane', settings:'settingspane'};
+  const loaders = {raw:()=>loadRaw('home'), sms:()=>loadPane('smspane','/raw/sms'),
+                   contacts:()=>loadPane('contactpane','/raw/phonecontacts'),
+                   settings:()=>loadPane('settingspane','/raw/settings')};
+  for(const k in panes){
+    const el=document.getElementById(panes[k]);
+    if(el) el.style.display = (m===k) ? (k==='chat'?'flex':'block') : 'none';
   }
+  if(loaders[m]){
+    const el=document.getElementById(panes[m]);
+    if(el && !el.dataset.loaded){ el.dataset.loaded="1"; loaders[m](); }
+  }
+}
+async function loadPane(id, url){
+  const el=document.getElementById(id);
+  if(!el) return;
+  el.innerHTML = '<div class="loading">加载中…</div>';
+  try{
+    const r=await fetch(url); el.innerHTML = await r.text();
+    if(window.htmx) htmx.process(el);
+  }catch(e){ el.innerHTML = '<div class="none">加载失败: '+e+'</div>'; }
 }
 function rawTabs(active){
   let h = '<div class="rawsearch">';
@@ -1221,7 +1240,9 @@ function pgJump(btn, url, maxPage){
   let p=parseInt(inp.value,10)||1;
   p=Math.min(maxPage, Math.max(1, p));
   const sep=url.includes('?')?'&':'?';
-  if(window.htmx) htmx.ajax('GET', url+sep+'page='+p, {target:'#raw-body', swap:'innerHTML'});
+  const pane=btn.closest('#rawpane,#smspane,#contactpane,#settingspane');
+  const tgt=pane?('#'+pane.id):'#raw-body';
+  if(window.htmx) htmx.ajax('GET', url+sep+'page='+p, {target:tgt, swap:'innerHTML'});
   else location.href=url+sep+'page='+p;
 }
 // 孤儿媒体格子: 内联复用主功能区播放器(视频原生controls / 语音silk解码 / 音乐audio)
