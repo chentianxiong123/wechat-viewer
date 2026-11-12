@@ -1,0 +1,14 @@
+[Unit]
+Description=Wechat chat viewer (http.server)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/wechat-viewer
+Environment=WECHAT_PORT=8010
+ExecStart=/usr/bin/python3 %h/wechat-viewer/app.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

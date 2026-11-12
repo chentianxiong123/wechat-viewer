@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """聊天记录浏览器 —— Python 标准库 http.server + SQLite + HTMX
-启动: python app.py  ->  http://127.0.0.1:8000
+启动: python app.py  ->  http://127.0.0.1:8010
 只读标准结构库 standard.db(chat-standard v1.0); 换数据源只换导入脚本。
 """
 import os, re, sqlite3, html, json
@@ -10,9 +10,9 @@ from urllib.parse import urlparse, parse_qs, quote
 BASE = os.path.dirname(os.path.abspath(__file__))
 # ---------- 可配置扫描目录(config.json) ----------
 CONFIG_PATH = os.path.join(BASE, "config.json")
-DEFAULT_CONFIG = {"data_dir": r"C:/Users/a1/Documents/HiSuite",
-                  "sms_dir": r"C:/Users/a1/Documents/HiSuite/ExportSMS",
-                  "contact_dir": r"C:/Users/a1/Documents/HiSuite/ExportContact"}
+DEFAULT_CONFIG = {"data_dir": r"/data/filebrowser/files/father/wechat",
+                  "sms_dir": r"/data/filebrowser/files/father/wechat/ExportSMS",
+                  "contact_dir": r"/data/filebrowser/files/father/wechat/ExportContact"}
 CONFIG = {}
 
 def load_config():
@@ -36,7 +36,7 @@ def load_config():
         CONFIG["contact_dir"] = os.path.join(DATA, "ExportContact")
 
 load_config()
-PORT = 8001
+PORT = int(os.environ.get("WECHAT_PORT", "8010"))
 
 
 # ---------- 真全库查询 ----------

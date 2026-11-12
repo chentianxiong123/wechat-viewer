@@ -4,8 +4,8 @@
 """
 import sqlite3, re, os, glob, sys, time, json
 
-BASE = r"C:/Users/a1/wechat-viewer"
-DATA = r"C:/Users/a1/Documents/HiSuite"
+BASE = r"/home/a1/wechat-viewer"
+DATA = r"/data/filebrowser/files/father/wechat"
 SRC = os.path.join(DATA, "decrypted.db")
 MEDIA = os.path.join(DATA, "wechat_media")
 DST = os.path.join(DATA, "standard.db")
@@ -110,7 +110,7 @@ def parse_card(content):
     return None
 
 def fetch_cover(cover_url):
-    """下载封面到 HiSuite/media/covers/, 返回 /media2/ URL; 失败返回空"""
+    """下载封面到 data/media/covers/, 返回 /media2/ URL; 失败返回空"""
     if not cover_url:
         return ""
     try:
